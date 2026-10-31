@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Kalsara v6</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Kalsara <span class="versi">v6 · Fase 2</span></h1>
+    <p class="ringkas" id="ringkas" aria-live="polite">Menyiapkan penyimpanan…</p>
+    <p class="status-db" id="status-db"></p>
+  </header>
+
+  <p class="peringatan" id="peringatan" role="alert" hidden></p>
+  <p class="pesan" id="pesan" role="status" aria-live="polite" hidden></p>
+
+  <section class="toolbar" aria-label="Aksi uji">
+    <button type="button" id="btn-tambah" disabled>Tambah produk contoh</button>
+    <button type="button" id="btn-acak" class="sekunder" disabled>Ubah stok acak</button>
+    <button type="button" id="btn-hapus-semua" class="sekunder" disabled>Hapus semua data</button>
+  </section>
+
+  <main id="daftar" class="daftar" aria-label="Daftar produk"></main>
+
+  <noscript>Kalsara membutuhkan JavaScript untuk berjalan.</noscript>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

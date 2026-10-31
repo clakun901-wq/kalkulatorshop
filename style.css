@@ -1,0 +1,157 @@
+/* Kalsara v6 — style global.
+   Custom Properties di :root otomatis menembus Shadow DOM,
+   jadi <product-card> memakai token yang sama tanpa bocor selector. */
+
+:root {
+  --warna-latar: #f3f6f8;
+  --warna-permukaan: #ffffff;
+  --warna-teks: #14212b;
+  --warna-teks-redup: #5a6b78;
+  --warna-garis: #d5dde3;
+  --warna-aksen: #12456e;
+  --warna-aksen-teks: #ffffff;
+  --warna-aman: #1f7a4d;
+  --warna-menipis: #a66300;
+  --warna-habis: #b3261e;
+
+  --radius-kartu: 10px;
+  --radius-kontrol: 6px;
+  --ruang: 16px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --warna-latar: #0f171d;
+    --warna-permukaan: #17232c;
+    --warna-teks: #e6edf2;
+    --warna-teks-redup: #93a4b1;
+    --warna-garis: #2b3b47;
+    --warna-aksen: #7db7ea;
+    --warna-aksen-teks: #0b1a26;
+    --warna-aman: #5fd09a;
+    --warna-menipis: #f0b45a;
+    --warna-habis: #ff8a80;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0)
+           env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--warna-teks);
+  background: var(--warna-latar);
+}
+
+.topbar {
+  padding: var(--ruang);
+  border-bottom: 1px solid var(--warna-garis);
+  background: var(--warna-permukaan);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 1.375rem;
+  line-height: 1.2;
+}
+
+.versi {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--warna-teks-redup);
+}
+
+.ringkas {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  color: var(--warna-teks-redup);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: var(--ruang);
+}
+
+button {
+  font: inherit;
+  min-height: 44px;
+  padding: 0 var(--ruang);
+  border: 1px solid var(--warna-aksen);
+  border-radius: var(--radius-kontrol);
+  background: var(--warna-aksen);
+  color: var(--warna-aksen-teks);
+  cursor: pointer;
+}
+
+button.sekunder {
+  background: transparent;
+  color: var(--warna-aksen);
+}
+
+button:focus-visible {
+  outline: 3px solid var(--warna-aksen);
+  outline-offset: 2px;
+}
+
+.daftar {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  padding: 0 var(--ruang) var(--ruang);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ---- Fase 2: status database & pesan ---- */
+.status-db {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: var(--warna-teks-redup);
+  overflow-wrap: anywhere;
+}
+
+.peringatan,
+.pesan {
+  margin: var(--ruang) var(--ruang) 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-kontrol);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.peringatan {
+  border: 1px solid var(--warna-menipis);
+  color: var(--warna-menipis);
+}
+
+.pesan {
+  border: 1px solid var(--warna-habis);
+  color: var(--warna-habis);
+}
+
+.peringatan[hidden],
+.pesan[hidden] { display: none; }
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kosong {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--warna-teks-redup);
+}
