@@ -1,4 +1,4 @@
-// app.js — entry point Kalsara v6 (Fase 6: Hitung lengkap)
+// app.js — entry point Kalsara v6 (Fase 7: Etalase)
 //
 // Menyambungkan:
 //   UI (Signals + <product-card> + formulir)
@@ -6,7 +6,9 @@
 //     <-> kalkulator.js -> worker.js (calculator.js: harga jual dan untung)
 // Utas utama hanya merender dan mengirim pesan.
 
-import { signal, computed, effect, batch, h } from './ui.js';
+import { signal, computed, effect, batch, h, formatRupiah } from './ui.js';
+import './kartu-etalase.js';
+import { buatGembok, teksPenjualan, awalHari, perluIsiUlang, BATAS_MENIPIS } from './etalase.js';
 import { db } from './db.js';
 import { kalkulator } from './kalkulator.js';
 import { jalankanUjiBeban } from './beban.js';
@@ -34,7 +36,7 @@ const daftarProduk = signal([]); // hanya produk di halaman yang tampil
 const halaman = signal(0); // 0-based
 const kata = signal('');
 const totalCocok = signal(0);
-const ringkasan = signal({ jumlah: 0, totalStok: 0 }); // seluruh database
+const ringkasan = signal({ jumlah: 0, totalStok: 0, tayang: 0 }); // seluruh database
 const statusDb = signal({ tahap: 'memuat' }); // memuat | siap | galat
 const pesan = signal({ teks: '', jenis: 'info' });
 const sibuk = signal(false);
@@ -44,14 +46,42 @@ const pengaturanTersimpan = signal(false);
 
 const jumlahHalaman = computed(() => Math.max(1, Math.ceil(totalCocok.value / BATAS_HALAMAN)));
 
+// Etalase (Fase 7): daftar produk yang tampil, halaman, pencarian, ringkasan penjualan.
+const daftarEtalase = signal([]);
+const halamanEtalase = signal(0);
+const kataEtalase = signal('');
+const totalEtalase = signal(0);
+const penjualanHariIni = signal({ jumlah: 0, untungSen: 0 });
+const penjualanTerakhir = signal(null); // catatan penjualan terakhir (untuk tombol Batalkan)
+const jumlahHalamanEtalase = computed(() => Math.max(1, Math.ceil(totalEtalase.value / BATAS_HALAMAN)));
+
+// Gembok stok: hanya hidup di memori. `versiGembok` naik tiap gembok berubah supaya kartu dirender ulang.
+const gembok = buatGembok();
+const versiGembok = signal(0);
+const konteksEtalase = { versiGembok, terbuka: (id) => gembok.terbuka(id) };
+const segarkanGembok = () => { versiGembok.value += 1; };
+
 function tanggalHariIni() {
   const d = new Date();
   const dua = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${dua(d.getMonth() + 1)}-${dua(d.getDate())}`;
 }
 
+// Bahan hitung untuk kalkulator (tidak reaktif). Dipakai kartu Hitung dan kartu Etalase.
+function dataHitung(baris) {
+  return {
+    modalSen: baris.modalSen,
+    kemitraanSen: baris.kemitraanSen,
+    packingSen: baris.packingSen,
+    targetUntungSen: baris.targetUntungSen,
+    isiPaket: baris.isiPaket,
+    override: baris.override,
+  };
+}
+
 function dariBaris(baris) {
   return {
+    tayang: signal(Boolean(baris.tayang)),
     id: baris.id,
     sku: baris.sku,
     nama: baris.nama,
@@ -67,15 +97,20 @@ function dariBaris(baris) {
     versiHitung: 0, // untuk membuang hasil hitung yang sudah usang
     versiPesaing: 0,
     antrean: Promise.resolve(), // urutan tulis database (tombol target diketuk cepat)
-    // Bahan hitung untuk kalkulator (tidak reaktif).
-    data: {
-      modalSen: baris.modalSen,
-      kemitraanSen: baris.kemitraanSen,
-      packingSen: baris.packingSen,
-      targetUntungSen: baris.targetUntungSen,
-      isiPaket: baris.isiPaket,
-      override: baris.override,
-    },
+    data: dataHitung(baris),
+  };
+}
+
+// Produk di Etalase: lebih ringan dari kartu Hitung (tanpa rincian, pesaing, riwayat).
+function dariBarisEtalase(baris) {
+  return {
+    id: baris.id,
+    sku: baris.sku,
+    nama: baris.nama,
+    stok: signal(baris.stok),
+    hitung: signal({ tahap: 'menunggu' }),
+    antrean: Promise.resolve(), // urutan tulis database (tombol ditekan cepat)
+    data: dataHitung(baris),
   };
 }
 
@@ -118,6 +153,14 @@ const btnSebelumnya = $('btn-sebelumnya');
 const btnBerikutnya = $('btn-berikutnya');
 const panelBeban = $('panel-beban');
 const daftarBeban = $('hasil-beban');
+const wadahEtalase = $('daftar-etalase');
+const elCariEtalase = $('cari-etalase');
+const elRingkasEtalase = $('ringkas-etalase');
+const elStrip = $('strip-penjualan');
+const elTeksStrip = $('teks-strip');
+const elInfoHalamanEtalase = $('info-halaman-etalase');
+const btnSebelumnyaEtalase = $('btn-sebelumnya-etalase');
+const btnBerikutnyaEtalase = $('btn-berikutnya-etalase');
 const tombolAksi = ['btn-tambah', 'btn-acak', 'btn-dummy', 'btn-beban', 'btn-hapus-semua'].map($);
 
 /* ---------------------------------------------------------------
@@ -125,15 +168,27 @@ const tombolAksi = ['btn-tambah', 'btn-acak', 'btn-dummy', 'btn-beban', 'btn-hap
 ---------------------------------------------------------------- */
 const TAB = {
   hitung: { tab: $('tab-hitung'), panel: $('panel-hitung') },
+  etalase: { tab: $('tab-etalase'), panel: $('panel-etalase') },
   setelan: { tab: $('tab-setelan'), panel: $('panel-setelan') },
 };
+let tabAktif = 'hitung';
 
 function pilihTab(nama) {
+  if (nama === tabAktif) return;
+  const dari = tabAktif;
+  tabAktif = nama;
   for (const [kunci, { tab, panel }] of Object.entries(TAB)) {
     const aktif = kunci === nama;
     tab.setAttribute('aria-selected', String(aktif));
     tab.tabIndex = aktif ? 0 : -1;
     panel.hidden = !aktif;
+  }
+  // Meninggalkan Etalase mengunci semua gembok stok kembali.
+  if (dari === 'etalase' && gembok.kunciSemua()) segarkanGembok();
+  // Data dimuat ulang saat tab dibuka, jadi stok dan harga di dua tab tidak saling usang.
+  if (statusDb.peek().tahap === 'siap') {
+    const muat = nama === 'etalase' ? muatEtalase : nama === 'hitung' ? muatHalaman : null;
+    muat?.().catch((e) => tampilkanPesan(e?.message ?? String(e), 'galat'));
   }
 }
 for (const [kunci, { tab }] of Object.entries(TAB)) {
@@ -166,12 +221,73 @@ effect(() => {
 });
 
 effect(() => {
+  const daftar = daftarEtalase.value;
+  const siap = statusDb.value.tahap === 'siap';
+
+  if (daftar.length > 0) {
+    // Produk yang perlu isi ulang (stok <= batas menipis) berada di depan; sisanya "Stok aman".
+    // Stok dibaca dengan peek() supaya daftar tidak dirakit ulang tiap stok berubah.
+    const anak = [];
+    let kelompok = null;
+    for (const item of daftar) {
+      const baru = perluIsiUlang(item.stok.peek()) ? 'isi' : 'aman';
+      if (baru !== kelompok) {
+        kelompok = baru;
+        anak.push(h('h2', { class: 'judul-kelompok', text: baru === 'isi' ? 'Perlu isi ulang' : 'Stok aman' }));
+      }
+      const kartu = document.createElement('etalase-card');
+      kartu.konteks = konteksEtalase;
+      kartu.item = item;
+      anak.push(kartu);
+    }
+    wadahEtalase.replaceChildren(...anak);
+  } else if (siap) {
+    wadahEtalase.replaceChildren(h('p', {
+      class: 'kosong',
+      text: kataEtalase.value
+        ? 'Tidak ada produk Etalase yang cocok dengan pencarian.'
+        : 'Etalase masih kosong. Di tab Hitung, ketuk "Tampil di Etalase" pada produk yang sudah tayang di Shopee.',
+    }));
+  } else {
+    wadahEtalase.replaceChildren();
+  }
+});
+
+effect(() => {
+  const siap = statusDb.value.tahap === 'siap';
+  const nomor = halamanEtalase.value + 1;
+  const total = jumlahHalamanEtalase.value;
+  elInfoHalamanEtalase.textContent = siap
+    ? `Halaman ${nomor} dari ${total} · ${totalEtalase.value.toLocaleString('id-ID')} produk`
+    : '';
+  btnSebelumnyaEtalase.disabled = !siap || halamanEtalase.value === 0;
+  btnBerikutnyaEtalase.disabled = !siap || nomor >= total;
+  elCariEtalase.disabled = !siap;
+});
+
+effect(() => {
+  const { jumlah, untungSen } = penjualanHariIni.value;
+  elRingkasEtalase.textContent = jumlah === 0
+    ? 'Hari ini belum ada penjualan tercatat.'
+    : `Hari ini: ${jumlah.toLocaleString('id-ID')} terjual · ${untungSen < 0 ? 'rugi' : 'untung'} ${formatRupiah(Math.abs(untungSen))}`;
+});
+
+effect(() => {
+  const c = penjualanTerakhir.value;
+  elStrip.hidden = c === null;
+  if (c) {
+    elTeksStrip.textContent = `Terakhir: ${c.nama}, ${c.untungSen < 0 ? 'rugi' : 'untung'} ${formatRupiah(Math.abs(c.untungSen))}. Salah ketuk?`;
+  }
+});
+
+effect(() => {
   const s = statusDb.value;
   if (s.tahap === 'memuat') elRingkas.textContent = 'Menyiapkan penyimpanan…';
   else if (s.tahap === 'galat') elRingkas.textContent = 'Penyimpanan belum siap';
   else {
     const r = ringkasan.value;
-    elRingkas.textContent = `${r.jumlah.toLocaleString('id-ID')} produk · total stok ${r.totalStok.toLocaleString('id-ID')}`;
+    elRingkas.textContent =
+      `${r.jumlah.toLocaleString('id-ID')} produk · ${r.tayang.toLocaleString('id-ID')} di Etalase · total stok ${r.totalStok.toLocaleString('id-ID')}`;
   }
 });
 
@@ -337,6 +453,55 @@ async function muatRingkasan() {
   ringkasan.value = await db.ringkasan();
 }
 
+/* ---------------------------------------------------------------
+   Etalase (Fase 7): produk yang tampil, harga dari kalkulator, stok dari database
+---------------------------------------------------------------- */
+let nomorEtalase = 0;
+
+async function hitungHargaEtalase(items, saya) {
+  if (items.length === 0) return;
+  let hasil;
+  try {
+    ({ hasil } = await kalkulator.hitungBanyak(items.map((p) => p.data), pengaturan.peek(), tanggalHariIni()));
+  } catch (e) {
+    hasil = items.map(() => ({ ok: false, galat: `Kalkulator gagal: ${e.message}` }));
+  }
+  if (saya !== nomorEtalase) return;
+  batch(() => {
+    hasil.forEach((r, i) => { items[i].hitung.value = petakanHasil(r, items[i]); });
+  });
+}
+
+async function muatPenjualanHariIni() {
+  penjualanHariIni.value = await db.ringkasanPenjualan(awalHari());
+}
+
+async function muatEtalase() {
+  const saya = ++nomorEtalase;
+  const { baris, total } = await db.halaman({
+    kata: kataEtalase.peek(),
+    batas: BATAS_HALAMAN,
+    offset: halamanEtalase.peek() * BATAS_HALAMAN,
+    tayang: true,
+    urut: 'etalase',
+    batasMenipis: BATAS_MENIPIS,
+  });
+  if (saya !== nomorEtalase) return;
+
+  const halamanTerakhir = Math.max(0, Math.ceil(total / BATAS_HALAMAN) - 1);
+  if (halamanEtalase.peek() > halamanTerakhir) {
+    halamanEtalase.value = halamanTerakhir;
+    return muatEtalase();
+  }
+
+  const items = baris.map(dariBarisEtalase);
+  batch(() => {
+    totalEtalase.value = total;
+    daftarEtalase.value = items;
+  });
+  await Promise.all([hitungHargaEtalase(items, saya), muatPenjualanHariIni()]);
+}
+
 async function muatSemua() {
   await Promise.all([muatRingkasan(), muatHalaman()]);
 }
@@ -437,6 +602,178 @@ wadah.addEventListener('riwayat-buka', async (e) => {
   } catch (err) {
     tampilkanPesan(err?.message ?? String(err), 'galat');
   }
+});
+
+/* ---------------------------------------------------------------
+   Tab Hitung: tampil / lepas dari Etalase
+---------------------------------------------------------------- */
+wadah.addEventListener('tayang-ubah', async (e) => {
+  const produk = cariProduk(e.detail.id);
+  if (!produk) return;
+  const baru = !produk.tayang.peek();
+  try {
+    const tersimpan = await db.ubahTayang(produk.id, baru);
+    produk.tayang.value = tersimpan;
+    produk.baris.tayang = tersimpan ? 1 : 0;
+    await muatRingkasan();
+    tampilkanPesan(tersimpan ? 'Produk tampil di tab Etalase.' : 'Produk dilepas dari tab Etalase.');
+  } catch (err) {
+    tampilkanPesan(err?.message ?? String(err), 'galat');
+  }
+});
+
+/* ---------------------------------------------------------------
+   Tab Etalase: gembok, penjualan, stok
+---------------------------------------------------------------- */
+const cariItemEtalase = (id) => daftarEtalase.peek().find((p) => p.id === id);
+
+let penjagaGembok = 0;
+function jagaGembok() {
+  if (penjagaGembok || gembok.jumlahTerbuka === 0) return;
+  penjagaGembok = setInterval(() => {
+    if (gembok.bersihkan()) segarkanGembok();
+    if (gembok.jumlahTerbuka === 0) { clearInterval(penjagaGembok); penjagaGembok = 0; }
+  }, 500);
+}
+
+// Gembok adalah sumber kebenaran tunggal: kartu hanya melapor, di sini dicek ulang.
+// Mengembalikan true bila terbuka; sekaligus memperpanjang waktunya.
+function gembokTerbukaUntuk(id) {
+  if (!gembok.terbuka(id)) {
+    tampilkanPesan('Terkunci. Ketuk ikon gembok dulu.');
+    return false;
+  }
+  gembok.perpanjang(id);
+  segarkanGembok();
+  return true;
+}
+
+wadahEtalase.addEventListener('gembok-ketuk', (e) => {
+  const { id, dariKolom } = e.detail;
+  if (dariKolom) { tampilkanPesan('Terkunci. Ketuk ikon gembok dulu.'); return; }
+  if (gembok.terbuka(id)) {
+    gembok.kunci(id);
+  } else {
+    gembok.buka(id);
+    jagaGembok();
+    tampilkanPesan('Stok terbuka 10 detik.');
+  }
+  segarkanGembok();
+});
+
+wadahEtalase.addEventListener('penjualan-catat', (e) => {
+  const item = cariItemEtalase(e.detail.id);
+  if (!item || !gembokTerbukaUntuk(item.id)) return;
+
+  const harga = item.hitung.peek();
+  if (harga.tahap !== 'ok') {
+    tampilkanPesan('Harga produk ini belum bisa dihitung, jadi penjualan tidak dicatat dan stok tidak berubah. Lengkapi modal di tab Hitung.', 'galat');
+    return;
+  }
+  if (item.stok.peek() <= 0) {
+    tampilkanPesan('Stok sudah 0, penjualan tidak dicatat. Isi stok dulu bila ada stok baru.', 'galat');
+    return;
+  }
+  // Stok dan penjualan ditulis dalam satu transaksi di database. Ketukan cepat diantre berurutan.
+  item.antrean = item.antrean.then(async () => {
+    try {
+      const catatan = await db.catatPenjualan(item.id, harga.diskonSen, harga.untungSen);
+      item.stok.value = catatan.stok;
+      penjualanTerakhir.value = catatan;
+      tampilkanPesan(teksPenjualan(catatan));
+      await Promise.all([muatRingkasan(), muatPenjualanHariIni()]);
+    } catch (err) {
+      tampilkanPesan(err?.message ?? String(err), 'galat');
+      muatEtalase().catch(() => {}); // samakan tampilan dengan database
+    }
+  });
+});
+
+wadahEtalase.addEventListener('stok-tambah', (e) => {
+  const item = cariItemEtalase(e.detail.id);
+  if (!item || !gembokTerbukaUntuk(item.id)) return;
+  item.antrean = item.antrean.then(async () => {
+    try {
+      item.stok.value = await db.ubahStok(item.id, 1);
+      await muatRingkasan();
+    } catch (err) {
+      tampilkanPesan(err?.message ?? String(err), 'galat');
+    }
+  });
+});
+
+wadahEtalase.addEventListener('stok-atur', (e) => {
+  const item = cariItemEtalase(e.detail.id);
+  if (!item) return;
+  if (!gembokTerbukaUntuk(item.id)) { item.stok.value = item.stok.peek(); return; }
+  const stok = e.detail.stok;
+  item.antrean = item.antrean.then(async () => {
+    try {
+      await db.ubahStokMassal([{ id: item.id, stok }]);
+      item.stok.value = stok;
+      await muatRingkasan();
+    } catch (err) {
+      tampilkanPesan(err?.message ?? String(err), 'galat');
+    }
+  });
+});
+
+wadahEtalase.addEventListener('stok-tidak-valid', () => {
+  tampilkanPesan('Isi stok dengan bilangan bulat 0 atau lebih, contoh 25.', 'galat');
+});
+
+wadahEtalase.addEventListener('buka-di-hitung', (e) => {
+  elCari.value = e.detail.sku;
+  kata.value = e.detail.sku;
+  halaman.value = 0;
+  pilihTab('hitung'); // memuat ulang halaman Hitung dengan pencarian SKU ini
+});
+
+// Tombol "Batalkan": hapus catatan penjualan terakhir dan kembalikan stok 1.
+let waktuStrip = 0;
+effect(() => {
+  const c = penjualanTerakhir.value;
+  clearTimeout(waktuStrip);
+  if (c) waktuStrip = setTimeout(() => { penjualanTerakhir.value = null; }, 30_000);
+});
+
+$('btn-batal-jual').addEventListener('click', async () => {
+  const c = penjualanTerakhir.peek();
+  if (!c) return;
+  penjualanTerakhir.value = null; // cegah dobel ketuk
+  try {
+    const { stok } = await db.batalkanPenjualan(c.id);
+    const item = stok === null ? null : cariItemEtalase(c.produkId);
+    if (item) item.stok.value = stok;
+    tampilkanPesan('Penjualan dibatalkan. Stok dikembalikan 1 pcs.');
+    await Promise.all([muatRingkasan(), muatPenjualanHariIni()]);
+  } catch (err) {
+    tampilkanPesan(err?.message ?? String(err), 'galat');
+  }
+});
+
+btnSebelumnyaEtalase.addEventListener('click', () => {
+  if (halamanEtalase.peek() > 0) {
+    halamanEtalase.value -= 1;
+    muatEtalase().catch((err) => tampilkanPesan(err.message, 'galat'));
+  }
+});
+
+btnBerikutnyaEtalase.addEventListener('click', () => {
+  if (halamanEtalase.peek() + 1 < jumlahHalamanEtalase.peek()) {
+    halamanEtalase.value += 1;
+    muatEtalase().catch((err) => tampilkanPesan(err.message, 'galat'));
+  }
+});
+
+let waktuCariEtalase = 0;
+elCariEtalase.addEventListener('input', () => {
+  clearTimeout(waktuCariEtalase);
+  waktuCariEtalase = setTimeout(() => {
+    kataEtalase.value = elCariEtalase.value;
+    halamanEtalase.value = 0;
+    muatEtalase().catch((err) => tampilkanPesan(err.message, 'galat'));
+  }, JEDA_CARI_MS);
 });
 
 btnSebelumnya.addEventListener('click', () => {
@@ -616,6 +953,17 @@ $('btn-hapus-semua').addEventListener('click', () => {
     elCari.value = '';
     kata.value = '';
     halaman.value = 0;
+    elCariEtalase.value = '';
+    kataEtalase.value = '';
+    halamanEtalase.value = 0;
+    gembok.kunciSemua();
+    segarkanGembok();
+    batch(() => {
+      daftarEtalase.value = [];
+      totalEtalase.value = 0;
+      penjualanTerakhir.value = null;
+      penjualanHariIni.value = { jumlah: 0, untungSen: 0 };
+    });
     hasilBeban.value = null;
     await muatSemua();
   });

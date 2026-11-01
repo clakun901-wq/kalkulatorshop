@@ -1,4 +1,4 @@
-// db.js — pintu masuk penyimpanan Kalsara v6 (Fase 2; Fase 6 menambah ubahTarget dan riwayatModal)
+// db.js — pintu masuk penyimpanan Kalsara v6 (Fase 2; Fase 6: ubahTarget, riwayatModal; Fase 7: Etalase)
 //
 // Utas utama TIDAK menyentuh SQLite. File ini hanya mengirim perintah ke
 // db.worker.js lewat postMessage dan mengembalikan hasilnya sebagai Promise.
@@ -63,8 +63,9 @@ export const db = {
   },
 
   daftar: () => panggil('daftar'),
-  halaman: (opsi) => panggil('halaman', opsi), // { kata, batas, offset } -> { baris, total }
-  ringkasan: () => panggil('ringkasan'), // { jumlah, totalStok } seluruh produk
+  // { kata, batas, offset, tayang, urut: 'id' | 'etalase', batasMenipis } -> { baris, total }
+  halaman: (opsi) => panggil('halaman', opsi),
+  ringkasan: () => panggil('ringkasan'), // { jumlah, totalStok, tayang } seluruh produk
   suntikDummy: (jumlah = 1000) => panggil('suntikDummy', { jumlah }),
   tambah: (produk) => panggil('tambah', produk),
   tambahBanyak: (daftar) => panggil('tambahBanyak', daftar),
@@ -73,6 +74,12 @@ export const db = {
   ubahProduk: (produk) => panggil('ubahProduk', produk), // { id, ...field produk }; modal berubah -> masuk riwayat
   ubahTarget: (id, targetUntungSen) => panggil('ubahTarget', { id, targetUntungSen }), // -> target tersimpan (sen)
   riwayatModal: (id, batas = 20) => panggil('riwayatModal', { id, batas }), // -> [{ lamaSen, baruSen, dicatatPada }]
+  // Fase 7 (Etalase)
+  ubahTayang: (id, tayang) => panggil('ubahTayang', { id, tayang }), // -> true/false tersimpan
+  catatPenjualan: (produkId, hargaSen, untungSen) => panggil('catatPenjualan', { produkId, hargaSen, untungSen }),
+  // -> { id, produkId, sku, nama, hargaSen, untungSen, dicatatPada, stok } (stok sesudah dikurangi 1)
+  batalkanPenjualan: (id) => panggil('batalkanPenjualan', { id }), // -> { stok } (null bila produk sudah dihapus)
+  ringkasanPenjualan: (sejak) => panggil('ringkasanPenjualan', { sejak }), // -> { jumlah, untungSen }
   hapus: (id) => panggil('hapus', id),
   ambilPengaturan: () => panggil('ambilPengaturan'), // objek atau null bila belum pernah disimpan
   simpanPengaturan: (pengaturan) => panggil('simpanPengaturan', pengaturan),

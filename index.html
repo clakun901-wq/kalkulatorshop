@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Kalsara <span class="versi">v6 · Fase 6</span></h1>
+    <h1>Kalsara <span class="versi">v6 · Fase 7</span></h1>
     <p class="ringkas" id="ringkas" aria-live="polite">Menyiapkan penyimpanan…</p>
     <p class="status-db" id="status-db"></p>
   </header>
@@ -19,6 +19,7 @@
 
   <nav class="tab" role="tablist" aria-label="Menu utama">
     <button type="button" role="tab" id="tab-hitung" aria-selected="true" aria-controls="panel-hitung">Hitung</button>
+    <button type="button" role="tab" id="tab-etalase" aria-selected="false" aria-controls="panel-etalase" tabindex="-1">Etalase</button>
     <button type="button" role="tab" id="tab-setelan" aria-selected="false" aria-controls="panel-setelan" tabindex="-1">Setelan</button>
   </nav>
 
@@ -43,6 +44,34 @@
       <button type="button" id="btn-sebelumnya" class="sekunder" disabled>Sebelumnya</button>
       <span id="info-halaman" aria-live="polite"></span>
       <button type="button" id="btn-berikutnya" class="sekunder" disabled>Berikutnya</button>
+    </nav>
+  </section>
+
+  <section id="panel-etalase" role="tabpanel" aria-labelledby="tab-etalase" hidden>
+    <p class="catatan etalase-catatan">
+      Produk yang sudah tayang di Shopee, dengan harga jual dan stok. Ketuk ikon gembok untuk membuka tombol stok
+      selama 10 detik. Tombol <b>−</b> mengurangi stok dan mencatat 1 penjualan; tombol <b>+</b> hanya menambah stok.
+      Angka stok adalah catatan Anda, jadi cocokkan dengan Seller Centre dan supplier.
+    </p>
+
+    <p class="ringkas-etalase" id="ringkas-etalase" aria-live="polite"></p>
+
+    <div class="strip-penjualan" id="strip-penjualan" role="status" aria-live="polite" hidden>
+      <span id="teks-strip"></span>
+      <button type="button" id="btn-batal-jual" class="sekunder">Batalkan</button>
+    </div>
+
+    <section class="cari-baris" aria-label="Pencarian Etalase">
+      <label for="cari-etalase" class="sr-only">Cari produk di Etalase</label>
+      <input id="cari-etalase" type="search" placeholder="Cari nama atau SKU di Etalase" autocomplete="off" disabled>
+    </section>
+
+    <main id="daftar-etalase" class="daftar" aria-label="Daftar produk Etalase"></main>
+
+    <nav class="pager" aria-label="Halaman Etalase">
+      <button type="button" id="btn-sebelumnya-etalase" class="sekunder" disabled>Sebelumnya</button>
+      <span id="info-halaman-etalase" aria-live="polite"></span>
+      <button type="button" id="btn-berikutnya-etalase" class="sekunder" disabled>Berikutnya</button>
     </nav>
   </section>
 
@@ -74,7 +103,7 @@
       </section>
     </details>
 
-    <p class="catatan">Tab Etalase menyusul di Fase 7; Promosi, Laporan, Tarif, dan ERP sesudahnya.</p>
+    <p class="catatan">Promosi, Laporan, Tarif, dan ERP menyusul di fase berikutnya.</p>
   </section>
 
   <dialog id="dlg-produk" aria-labelledby="judul-produk">

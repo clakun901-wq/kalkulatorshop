@@ -223,7 +223,8 @@ gayaKartu.replaceSync(`
   a { color: var(--warna-aksen, #12456e); overflow-wrap: anywhere; }
 
   /* Aksi */
-  .aksi { display: flex; justify-content: flex-end; }
+  .aksi { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+  button.aktif { background: var(--warna-aksen, #12456e); color: var(--warna-latar, #fff); }
   button {
     min-height: 44px;
     padding: 0 14px;
@@ -270,8 +271,9 @@ gayaKartu.replaceSync(`
      ok    -> awalSen (harga listing awal), diskonSen (harga diskon coret), untungSen,
               marginPpm, nada ('ok' | 'bad'), peringatan: { tingkat, pesan[] }, grafik
      galat -> galat
+   `tayang` (opsional) = signal(boolean): produk tampil di tab Etalase (Fase 7).
    Peristiwa keluar (bubbles, composed): stok-ubah, produk-ubah, target-ubah,
-   rincian-buka, pesaing-hitung, riwayat-buka.
+   rincian-buka, pesaing-hitung, riwayat-buka, tayang-ubah.
    DOM dibangun sekali; setelah itu tiap effect hanya menyentuh bagiannya sendiri.
 ---------------------------------------------------------------- */
 const AMBANG_MENIPIS = 5;
@@ -451,6 +453,11 @@ export class ProductCard extends HTMLElement {
       text: 'Ubah produk',
       onClick: () => kirim('produk-ubah'),
     });
+    const tombolTayang = h('button', {
+      type: 'button',
+      class: 'sekunder',
+      onClick: () => kirim('tayang-ubah'),
+    });
 
     const kartu = h('article', { class: 'kartu' },
       elNama,
@@ -465,7 +472,7 @@ export class ProductCard extends HTMLElement {
         elStok,
         h('div', { class: 'kontrol' }, tombolKurang, tombolTambah),
       ),
-      h('div', { class: 'aksi' }, tombolUbah),
+      h('div', { class: 'aksi' }, tombolTayang, tombolUbah),
     );
     akar.replaceChildren(kartu);
 
@@ -505,6 +512,14 @@ export class ProductCard extends HTMLElement {
 
     this.#bersih.push(effect(() => {
       elTarget.textContent = formatRupiah(p.target.value);
+    }));
+
+    // Fase 7: tombol "Tampil di Etalase" (produk yang sudah tayang di Shopee).
+    this.#bersih.push(effect(() => {
+      const tayang = p.tayang ? p.tayang.value : false;
+      tombolTayang.textContent = tayang ? 'Lepas dari Etalase' : 'Tampil di Etalase';
+      tombolTayang.setAttribute('aria-pressed', String(tayang));
+      tombolTayang.classList.toggle('aktif', tayang);
     }));
 
     this.#bersih.push(effect(() => {

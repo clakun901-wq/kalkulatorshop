@@ -363,3 +363,31 @@ dialog .aksi-form {
   background: var(--warna-permukaan);
   border-top: 1px solid var(--warna-garis);
 }
+
+/* ---- Fase 7: tab Etalase ---- */
+.etalase-catatan { margin-top: var(--ruang); }
+.ringkas-etalase {
+  margin: 0 var(--ruang) 8px;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.strip-penjualan {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 var(--ruang) 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--warna-aman);
+  border-radius: var(--radius-kontrol);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.strip-penjualan[hidden] { display: none; }
+.judul-kelompok {
+  grid-column: 1 / -1;
+  margin: 8px 0 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.judul-kelompok:first-child { margin-top: 0; }

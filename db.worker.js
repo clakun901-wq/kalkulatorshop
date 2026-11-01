@@ -1,4 +1,4 @@
-// db.worker.js — mesin penyimpanan Kalsara v6 (Fase 2, skema v4 sejak Fase 6)
+// db.worker.js — mesin penyimpanan Kalsara v6 (Fase 2; skema v4 sejak Fase 6, v5 sejak Fase 7)
 //
 // Berjalan di Web Worker karena OPFS sync access handle (dipakai SQLite)
 // hanya boleh dipakai di luar utas utama. Worker ini HANYA mengurus database.
@@ -21,7 +21,7 @@ const KANDIDAT_SQLITE = [
 ];
 
 const NAMA_DB = '/kalsara.sqlite3';
-const VERSI_SKEMA = 4;
+const VERSI_SKEMA = 5;
 
 let sqlite3 = null;
 let db = null;
@@ -128,6 +128,26 @@ function migrasi() {
           dicatat_pada INTEGER NOT NULL
         );
         CREATE INDEX idx_riwayat_produk ON riwayat_modal (produk_id, id);
+      `);
+    }
+    if (versi < 5) {
+      // Fase 7: penanda "tampil di Etalase" per produk dan catatan penjualan.
+      // Catatan penjualan menyimpan salinan SKU dan nama, jadi tetap utuh walau produknya dihapus
+      // (produk_id menjadi NULL). Untung boleh negatif (rugi).
+      db.exec(`
+        ALTER TABLE produk ADD COLUMN tayang INTEGER NOT NULL DEFAULT 0 CHECK (tayang IN (0, 1));
+        CREATE INDEX idx_produk_tayang ON produk (tayang, stok);
+        CREATE TABLE penjualan (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          produk_id    INTEGER REFERENCES produk(id) ON DELETE SET NULL,
+          sku          TEXT    NOT NULL,
+          nama         TEXT    NOT NULL,
+          harga_sen    INTEGER NOT NULL CHECK (harga_sen >= 0),
+          untung_sen   INTEGER NOT NULL,
+          dicatat_pada INTEGER NOT NULL
+        );
+        CREATE INDEX idx_penjualan_waktu ON penjualan (dicatat_pada);
+        CREATE INDEX idx_penjualan_produk ON penjualan (produk_id);
       `);
     }
     db.exec(`PRAGMA user_version = ${VERSI_SKEMA};`);
@@ -241,7 +261,7 @@ const SQL_BARIS = `
          modal_sen AS modalSen, kemitraan_sen AS kemitraanSen,
          packing_sen AS packingSen, target_untung_sen AS targetUntungSen,
          isi_paket AS isiPaket, override_json AS overrideJson,
-         supplier, link_supplier AS linkSupplier
+         supplier, link_supplier AS linkSupplier, tayang
   FROM produk
 `;
 
@@ -317,28 +337,44 @@ const OPERASI = {
 
   // Satu halaman produk (+ pencarian nama/SKU) langsung dari SQLite, jadi utas utama
   // tidak pernah memegang ribuan baris sekaligus.
-  halaman({ kata = '', batas = 24, offset = 0 } = {}) {
+  //   tayang: true      -> hanya produk yang tampil di Etalase
+  //   urut: 'etalase'   -> stok paling sedikit lebih dulu, produk dengan stok <= batasMenipis
+  //                        ("perlu isi ulang") di depan produk berstok aman.
+  halaman({ kata = '', batas = 24, offset = 0, tayang = false, urut = 'id', batasMenipis = 10 } = {}) {
     if (!Number.isSafeInteger(batas) || batas < 1 || batas > 500) throw new Error('batas harus 1-500.');
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('offset tidak valid.');
+    if (urut !== 'id' && urut !== 'etalase') throw new Error('urutan tidak dikenal.');
+    if (!Number.isSafeInteger(batasMenipis) || batasMenipis < 0 || batasMenipis > 999_999_999) {
+      throw new Error('batas stok menipis tidak valid.');
+    }
     const teks = String(kata).trim().slice(0, 100);
-    let where = '';
-    let bind = [];
+    const syarat = [];
+    const bind = [];
     if (teks) {
       const pola = `%${teks.replace(/[\\%_]/g, '\\$&')}%`;
-      where = "WHERE nama LIKE ? ESCAPE '\\' OR sku LIKE ? ESCAPE '\\'";
-      bind = [pola, pola];
+      syarat.push("(nama LIKE ? ESCAPE '\\' OR sku LIKE ? ESCAPE '\\')");
+      bind.push(pola, pola);
     }
+    if (tayang) syarat.push('tayang = 1');
+    const where = syarat.length > 0 ? `WHERE ${syarat.join(' AND ')}` : '';
+    const urutSql = urut === 'etalase' ? 'ORDER BY (stok > ?), stok, id' : 'ORDER BY id';
+    const bindUrut = urut === 'etalase' ? [batasMenipis] : [];
     // SQLite Wasm menolak daftar bind pada pernyataan tanpa parameter, jadi kirim
-    // `undefined` (bukan []) bila tidak ada kata pencarian.
+    // `undefined` (bukan []) bila tidak ada syarat berparameter.
     const bindCari = bind.length > 0 ? bind : undefined;
     const total = Number(db.selectValue(`SELECT COUNT(*) FROM produk ${where}`, bindCari));
-    const baris = db.selectObjects(`${SQL_BARIS} ${where} ORDER BY id LIMIT ? OFFSET ?`, [...bind, batas, offset]).map(rapikanBaris);
+    const baris = db.selectObjects(
+      `${SQL_BARIS} ${where} ${urutSql} LIMIT ? OFFSET ?`,
+      [...bind, ...bindUrut, batas, offset]
+    ).map(rapikanBaris);
     return { baris, total };
   },
 
   ringkasan() {
-    const r = db.selectObject('SELECT COUNT(*) AS jumlah, COALESCE(SUM(stok), 0) AS totalStok FROM produk');
-    return { jumlah: Number(r.jumlah), totalStok: Number(r.totalStok) };
+    const r = db.selectObject(
+      'SELECT COUNT(*) AS jumlah, COALESCE(SUM(stok), 0) AS totalStok, COALESCE(SUM(tayang), 0) AS tayang FROM produk'
+    );
+    return { jumlah: Number(r.jumlah), totalStok: Number(r.totalStok), tayang: Number(r.tayang) };
   },
 
   // Suntik data dummy deterministik (SKU DUM-0001, ...). SKU yang sudah ada dilewati.
@@ -467,6 +503,73 @@ const OPERASI = {
     return daftar.length;
   },
 
+  // Fase 7: tampilkan atau lepas produk dari Etalase. Mengembalikan nilai yang tersimpan.
+  ubahTayang({ id, tayang }) {
+    if (!Number.isSafeInteger(id)) throw new Error('id produk harus bilangan bulat.');
+    if (typeof tayang !== 'boolean') throw new Error('tayang harus true atau false.');
+    db.exec({
+      sql: 'UPDATE produk SET tayang = ?, diubah_pada = ? WHERE id = ?',
+      bind: [tayang ? 1 : 0, Date.now(), id],
+    });
+    const hasil = db.selectValue('SELECT tayang FROM produk WHERE id = ?', [id]);
+    if (hasil === undefined) throw new Error('Produk tidak ditemukan.');
+    return Number(hasil) === 1;
+  },
+
+  // Fase 7: catat 1 penjualan DAN kurangi stok 1 dalam satu transaksi, jadi keduanya
+  // selalu berjalan bersama atau tidak sama sekali. Harga dan untung berasal dari kalkulator
+  // (sen); di sini hanya divalidasi dan disimpan sebagai salinan saat penjualan terjadi.
+  catatPenjualan({ produkId, hargaSen, untungSen }) {
+    if (!Number.isSafeInteger(produkId)) throw new Error('id produk harus bilangan bulat.');
+    const harga = bulatTakNegatif(hargaSen, 'Harga jual');
+    if (!Number.isSafeInteger(untungSen)) throw new Error('Untung harus bilangan bulat sen.');
+    return db.transaction(() => {
+      const p = db.selectObject('SELECT sku, nama, stok FROM produk WHERE id = ?', [produkId]);
+      if (!p) throw new Error('Produk tidak ditemukan.');
+      if (Number(p.stok) <= 0) throw new Error('Stok habis, penjualan tidak dicatat.');
+      const kini = Date.now();
+      db.exec({
+        sql: 'UPDATE produk SET stok = stok - 1, diubah_pada = ? WHERE id = ?',
+        bind: [kini, produkId],
+      });
+      db.exec({
+        sql: `INSERT INTO penjualan (produk_id, sku, nama, harga_sen, untung_sen, dicatat_pada)
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        bind: [produkId, p.sku, p.nama, harga, untungSen, kini],
+      });
+      const id = Number(db.selectValue('SELECT last_insert_rowid()'));
+      return { id, produkId, sku: p.sku, nama: p.nama, hargaSen: harga, untungSen, dicatatPada: kini, stok: Number(p.stok) - 1 };
+    });
+  },
+
+  // Fase 7: batalkan satu catatan penjualan (salah ketuk) dan kembalikan stok 1 bila produknya masih ada.
+  // Mengembalikan { stok } (null bila produknya sudah dihapus).
+  batalkanPenjualan({ id }) {
+    if (!Number.isSafeInteger(id)) throw new Error('id penjualan harus bilangan bulat.');
+    return db.transaction(() => {
+      const baris = db.selectObject('SELECT produk_id AS produkId FROM penjualan WHERE id = ?', [id]);
+      if (!baris) throw new Error('Catatan penjualan tidak ditemukan (mungkin sudah dibatalkan).');
+      db.exec({ sql: 'DELETE FROM penjualan WHERE id = ?', bind: [id] });
+      if (baris.produkId === null || baris.produkId === undefined) return { stok: null };
+      db.exec({
+        sql: 'UPDATE produk SET stok = stok + 1, diubah_pada = ? WHERE id = ?',
+        bind: [Date.now(), baris.produkId],
+      });
+      const stok = db.selectValue('SELECT stok FROM produk WHERE id = ?', [baris.produkId]);
+      return { stok: stok === undefined ? null : Number(stok) };
+    });
+  },
+
+  // Fase 7: jumlah dan untung penjualan sejak waktu tertentu (ms), untuk ringkasan di Etalase.
+  ringkasanPenjualan({ sejak }) {
+    if (!Number.isSafeInteger(sejak) || sejak < 0) throw new Error('waktu mulai tidak valid.');
+    const r = db.selectObject(
+      'SELECT COUNT(*) AS jumlah, COALESCE(SUM(untung_sen), 0) AS untungSen FROM penjualan WHERE dicatat_pada >= ?',
+      [sejak]
+    );
+    return { jumlah: Number(r.jumlah), untungSen: Number(r.untungSen) };
+  },
+
   hapus(id) {
     if (!Number.isSafeInteger(id)) throw new Error('id harus bilangan bulat.');
     db.exec({ sql: 'DELETE FROM produk WHERE id = ?', bind: [id] });
@@ -475,7 +578,7 @@ const OPERASI = {
 
   kosongkan() {
     db.transaction(() => {
-      db.exec("DELETE FROM produk; DELETE FROM sqlite_sequence WHERE name = 'produk';");
+      db.exec("DELETE FROM penjualan; DELETE FROM produk; DELETE FROM sqlite_sequence WHERE name IN ('produk', 'penjualan');");
     });
     return true;
   },
