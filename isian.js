@@ -151,6 +151,11 @@ export const SPEK_SETELAN = [
   { id: 'voucherBatas', label: 'Batas potongan voucher persen (Rp, 0 = tanpa batas)', jenis: 'rupiah', jalur: ['voucher', 'batasSen'] },
   { id: 'bulatLangkah', label: 'Pembulatan harga ke kelipatan (Rp)', jenis: 'rupiah', min: 1, maks: 1_000_000, jalur: ['pembulatan', 'langkahSen'] },
   { id: 'bulatAkhiran', label: 'Akhiran harga (Rp, 0 = tidak dipakai)', jenis: 'rupiah', maks: 999, jalur: ['pembulatan', 'akhiranSen'], bantuan: 'Contoh 900 membuat harga berakhiran 900 (…1.900, …2.900).' },
+
+  { kelompok: 'Peringatan untung' },
+  { id: 'untungMin', label: 'Untung minimal aman per pesanan (Rp)', jenis: 'rupiah', jalur: ['peringatan', 'untungMinSen'], bantuan: 'Untung di bawah ini diberi peringatan kuning.' },
+  { id: 'marginMin', label: 'Margin minimal aman (%)', jenis: 'persen', maks: 1_000_000, jalur: ['peringatan', 'marginMinPpm'], bantuan: 'Untung dibagi harga jual setelah voucher.' },
+  { id: 'potonganMaks', label: 'Total potongan maksimal wajar (%)', jenis: 'persen', maks: 1_000_000, jalur: ['peringatan', 'potonganMaksPpm'], bantuan: 'Biaya Shopee + premi + PPh dibagi harga jual. Di atas ini diberi peringatan.' },
 ];
 
 /* ===============================================================
@@ -255,6 +260,9 @@ export const SPEK_PRODUK = [
   { id: 'packing', label: 'Biaya packing (Rp)', jenis: 'rupiah' },
   { id: 'target', label: 'Target untung (Rp)', jenis: 'rupiah' },
   { id: 'stok', label: 'Stok', jenis: 'angka' },
+  { kelompok: 'Supplier (opsional)' },
+  { id: 'supplier', label: 'Nama supplier', jenis: 'teks' },
+  { id: 'linkSupplier', label: 'Link supplier', jenis: 'teks', bantuan: 'Diawali http:// atau https://. Perubahan modal dicatat otomatis di riwayat modal.' },
   { kelompok: 'Tarif khusus produk ini (opsional)' },
   { id: 'kategoriAdmin', label: 'Kategori administrasi', jenis: 'pilih', opsi: [...OPSI_IKUTI, ...OPSI_ADMIN] },
   { id: 'kategoriGo', label: 'Kategori Gratis Ongkir XTRA', jenis: 'pilih', opsi: [...OPSI_IKUTI, ...OPSI_GO] },
@@ -264,6 +272,7 @@ export const SPEK_PRODUK = [
 export function isianProdukKosong() {
   return {
     nama: '', sku: '', modal: '', isiPaket: '1', kemitraan: '0', packing: '0', target: '0', stok: '0',
+    supplier: '', linkSupplier: '',
     kategoriAdmin: '', kategoriGo: '', ukuran: '',
   };
 }
@@ -279,6 +288,8 @@ export function isianDariProduk(baris) {
     packing: senKeTeks(baris.packingSen),
     target: senKeTeks(baris.targetUntungSen),
     stok: String(baris.stok),
+    supplier: baris.supplier ?? '',
+    linkSupplier: baris.linkSupplier ?? '',
     kategoriAdmin: o.kategoriAdmin ?? '',
     kategoriGo: o.kategoriGo ?? '',
     ukuran: o.ukuran ?? '',
@@ -304,9 +315,19 @@ export function produkDariIsian(isian) {
   const modalSen = ambil('Modal', hasilModal);
   if (hasilModal.ok && modalSen <= 0) galat.push('Modal wajib diisi dan harus lebih dari 0.');
 
+  const supplier = String(isian.supplier ?? '').trim();
+  if (supplier.length > 100) galat.push('Nama supplier maksimal 100 karakter.');
+  const linkSupplier = String(isian.linkSupplier ?? '').trim();
+  if (linkSupplier.length > 500) galat.push('Link supplier maksimal 500 karakter.');
+  else if (linkSupplier && !/^https?:\/\/\S+$/i.test(linkSupplier)) {
+    galat.push('Link supplier harus diawali http:// atau https:// dan tanpa spasi.');
+  }
+
   const produk = {
     nama,
     sku,
+    supplier,
+    linkSupplier,
     modalSen,
     isiPaket: ambil('Isi paket', teksKeBulat(isian.isiPaket, { min: 1, maks: 10_000 })),
     kemitraanSen: ambil('Biaya Management Partner', teksKeSen(isian.kemitraan)),

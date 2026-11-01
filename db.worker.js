@@ -1,4 +1,4 @@
-// db.worker.js — mesin penyimpanan Kalsara v6 (Fase 2)
+// db.worker.js — mesin penyimpanan Kalsara v6 (Fase 2, skema v4 sejak Fase 6)
 //
 // Berjalan di Web Worker karena OPFS sync access handle (dipakai SQLite)
 // hanya boleh dipakai di luar utas utama. Worker ini HANYA mengurus database.
@@ -21,7 +21,7 @@ const KANDIDAT_SQLITE = [
 ];
 
 const NAMA_DB = '/kalsara.sqlite3';
-const VERSI_SKEMA = 3;
+const VERSI_SKEMA = 4;
 
 let sqlite3 = null;
 let db = null;
@@ -115,6 +115,21 @@ function migrasi() {
         ALTER TABLE produk ADD COLUMN override_json TEXT NOT NULL DEFAULT '{}';
       `);
     }
+    if (versi < 4) {
+      // Fase 6: supplier per produk dan riwayat perubahan modal.
+      db.exec(`
+        ALTER TABLE produk ADD COLUMN supplier TEXT NOT NULL DEFAULT '';
+        ALTER TABLE produk ADD COLUMN link_supplier TEXT NOT NULL DEFAULT '';
+        CREATE TABLE riwayat_modal (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          produk_id    INTEGER NOT NULL REFERENCES produk(id) ON DELETE CASCADE,
+          lama_sen     INTEGER NOT NULL CHECK (lama_sen >= 0),
+          baru_sen     INTEGER NOT NULL CHECK (baru_sen >= 0),
+          dicatat_pada INTEGER NOT NULL
+        );
+        CREATE INDEX idx_riwayat_produk ON riwayat_modal (produk_id, id);
+      `);
+    }
     db.exec(`PRAGMA user_version = ${VERSI_SKEMA};`);
   });
 }
@@ -143,9 +158,18 @@ function cekProduk(p) {
   if (!Number.isSafeInteger(stok) || stok < 0) {
     throw new Error('Stok harus bilangan bulat dan tidak negatif.');
   }
+  const supplier = typeof p.supplier === 'string' ? p.supplier.trim() : '';
+  if (supplier.length > 100) throw new Error('Nama supplier maksimal 100 karakter.');
+  const linkSupplier = typeof p.linkSupplier === 'string' ? p.linkSupplier.trim() : '';
+  if (linkSupplier.length > 500) throw new Error('Link supplier maksimal 500 karakter.');
+  if (linkSupplier && !/^https?:\/\/\S+$/i.test(linkSupplier)) {
+    throw new Error('Link supplier harus diawali http:// atau https://.');
+  }
   return {
     sku,
     nama,
+    supplier,
+    linkSupplier,
     hargaSen: bulatTakNegatif(p.hargaSen, 'Harga'),
     stok,
     modalSen: bulatTakNegatif(p.modalSen, 'Modal'),
@@ -160,7 +184,8 @@ function cekProduk(p) {
 function bindProduk(v, kini) {
   return [
     v.sku, v.nama, v.hargaSen, v.stok, v.modalSen, v.kemitraanSen,
-    v.packingSen, v.targetUntungSen, v.isiPaket, JSON.stringify(v.override ?? {}), kini, kini,
+    v.packingSen, v.targetUntungSen, v.isiPaket, JSON.stringify(v.override ?? {}),
+    v.supplier ?? '', v.linkSupplier ?? '', kini, kini,
   ];
 }
 
@@ -208,14 +233,15 @@ function denganStmt(sql, isi) {
 const SQL_TAMBAH = `
   INSERT INTO produk (
     sku, nama, harga_sen, stok, modal_sen, kemitraan_sen, packing_sen,
-    target_untung_sen, isi_paket, override_json, dibuat_pada, diubah_pada
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    target_untung_sen, isi_paket, override_json, supplier, link_supplier, dibuat_pada, diubah_pada
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 const SQL_BARIS = `
   SELECT id, sku, nama, harga_sen AS hargaSen, stok,
          modal_sen AS modalSen, kemitraan_sen AS kemitraanSen,
          packing_sen AS packingSen, target_untung_sen AS targetUntungSen,
-         isi_paket AS isiPaket, override_json AS overrideJson
+         isi_paket AS isiPaket, override_json AS overrideJson,
+         supplier, link_supplier AS linkSupplier
   FROM produk
 `;
 
@@ -339,19 +365,57 @@ const OPERASI = {
     if (!Number.isSafeInteger(id)) throw new Error('id produk harus bilangan bulat.');
     const v = cekProduk(p);
     try {
-      db.exec({
-        sql: `UPDATE produk SET sku = ?, nama = ?, stok = ?, modal_sen = ?, kemitraan_sen = ?,
-                packing_sen = ?, target_untung_sen = ?, isi_paket = ?, override_json = ?, diubah_pada = ?
-              WHERE id = ?`,
-        bind: [v.sku, v.nama, v.stok, v.modalSen, v.kemitraanSen, v.packingSen,
-          v.targetUntungSen, v.isiPaket, JSON.stringify(v.override), Date.now(), id],
+      db.transaction(() => {
+        const lama = db.selectValue('SELECT modal_sen FROM produk WHERE id = ?', [id]);
+        if (lama === undefined) throw new Error('Produk tidak ditemukan.');
+        const kini = Date.now();
+        db.exec({
+          sql: `UPDATE produk SET sku = ?, nama = ?, stok = ?, modal_sen = ?, kemitraan_sen = ?,
+                  packing_sen = ?, target_untung_sen = ?, isi_paket = ?, override_json = ?,
+                  supplier = ?, link_supplier = ?, diubah_pada = ?
+                WHERE id = ?`,
+          bind: [v.sku, v.nama, v.stok, v.modalSen, v.kemitraanSen, v.packingSen,
+            v.targetUntungSen, v.isiPaket, JSON.stringify(v.override),
+            v.supplier, v.linkSupplier, kini, id],
+        });
+        // Modal berubah: catat di riwayat (modal lama 0 = belum pernah diisi, tidak dicatat).
+        const modalLama = Number(lama);
+        if (modalLama > 0 && modalLama !== v.modalSen) {
+          db.exec({
+            sql: 'INSERT INTO riwayat_modal (produk_id, lama_sen, baru_sen, dicatat_pada) VALUES (?, ?, ?, ?)',
+            bind: [id, modalLama, v.modalSen, kini],
+          });
+        }
       });
     } catch (e) {
       throw terjemahkanGalat(e);
     }
-    const baris = db.selectObject(`${SQL_BARIS} WHERE id = ?`, [id]);
-    if (!baris) throw new Error('Produk tidak ditemukan.');
-    return rapikanBaris(baris);
+    return rapikanBaris(db.selectObject(`${SQL_BARIS} WHERE id = ?`, [id]));
+  },
+
+  // Ubah target untung saja (tombol +1.000, +5.000, Reset di kartu produk).
+  ubahTarget({ id, targetUntungSen }) {
+    if (!Number.isSafeInteger(id)) throw new Error('id produk harus bilangan bulat.');
+    const target = bulatTakNegatif(targetUntungSen, 'Target untung');
+    if (target > 100_000_000_000) throw new Error('Target untung terlalu besar.');
+    db.exec({
+      sql: 'UPDATE produk SET target_untung_sen = ?, diubah_pada = ? WHERE id = ?',
+      bind: [target, Date.now(), id],
+    });
+    const hasil = db.selectValue('SELECT target_untung_sen FROM produk WHERE id = ?', [id]);
+    if (hasil === undefined) throw new Error('Produk tidak ditemukan.');
+    return Number(hasil);
+  },
+
+  // Riwayat perubahan modal satu produk, terbaru dulu.
+  riwayatModal({ id, batas = 20 }) {
+    if (!Number.isSafeInteger(id)) throw new Error('id produk harus bilangan bulat.');
+    if (!Number.isSafeInteger(batas) || batas < 1 || batas > 200) throw new Error('batas harus 1-200.');
+    return db.selectObjects(
+      `SELECT lama_sen AS lamaSen, baru_sen AS baruSen, dicatat_pada AS dicatatPada
+       FROM riwayat_modal WHERE produk_id = ? ORDER BY id DESC LIMIT ?`,
+      [id, batas]
+    ).map((r) => ({ lamaSen: Number(r.lamaSen), baruSen: Number(r.baruSen), dicatatPada: Number(r.dicatatPada) }));
   },
 
   ambilPengaturan() {

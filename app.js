@@ -1,4 +1,4 @@
-// app.js — entry point Kalsara v6 (Fase 5: Setelan toko + Hitung)
+// app.js — entry point Kalsara v6 (Fase 6: Hitung lengkap)
 //
 // Menyambungkan:
 //   UI (Signals + <product-card> + formulir)
@@ -11,7 +11,9 @@ import { db } from './db.js';
 import { kalkulator } from './kalkulator.js';
 import { jalankanUjiBeban } from './beban.js';
 import { gabungPengaturan, PENGATURAN_BAWAAN } from './calculator.js';
+import { pesanPeringatan, barisRiwayat } from './rincian.js';
 import {
+  teksKeSen,
   SPEK_SETELAN,
   SPEK_PRODUK,
   isianDariPengaturan,
@@ -53,9 +55,18 @@ function dariBaris(baris) {
     id: baris.id,
     sku: baris.sku,
     nama: baris.nama,
+    supplier: baris.supplier ?? '',
+    linkSupplier: baris.linkSupplier ?? '',
     baris, // data lengkap untuk formulir ubah
     stok: signal(baris.stok),
+    target: signal(baris.targetUntungSen),
     hitung: signal({ tahap: 'menunggu' }),
+    rincian: signal(null), // null = belum dibuka
+    pesaing: signal(null),
+    riwayat: signal(null),
+    versiHitung: 0, // untuk membuang hasil hitung yang sudah usang
+    versiPesaing: 0,
+    antrean: Promise.resolve(), // urutan tulis database (tombol target diketuk cepat)
     // Bahan hitung untuk kalkulator (tidak reaktif).
     data: {
       modalSen: baris.modalSen,
@@ -65,6 +76,29 @@ function dariBaris(baris) {
       isiPaket: baris.isiPaket,
       override: baris.override,
     },
+  };
+}
+
+const PESAN_GALAT = {
+  TARIF_100: 'Total tarif (admin, iklan, premi, dan lainnya) mencapai 100%. Periksa persen iklan dan tarif di tab Setelan.',
+  VOUCHER_100: 'Voucher toko 100% membuat harga jadi nol. Turunkan nilainya di tab Setelan.',
+  DISKON_100: 'Diskon coret 100% atau lebih tidak masuk akal. Turunkan nilainya di tab Setelan.',
+  DI_LUAR_BATAS: 'Target untung belum tercapai dalam batas pencarian harga. Periksa target untung, modal, biaya, dan tarif.',
+};
+const pesanGalat = (r) => PESAN_GALAT[r.kode] ?? r.galat;
+
+// Hasil kalkulator -> bahan kartu. Nada untung: hijau bila mencapai target, merah bila tidak.
+function petakanHasil(r, produk) {
+  if (!r.ok) return { tahap: 'galat', galat: pesanGalat(r) };
+  return {
+    tahap: 'ok',
+    awalSen: r.hargaCoretSen, // v5.82: "Harga listing awal"
+    diskonSen: r.hargaListingSen, // v5.82: "Harga diskon coret"
+    untungSen: r.untungSen,
+    marginPpm: r.marginPpm,
+    nada: r.untungSen >= produk.data.targetUntungSen ? 'ok' : 'bad',
+    peringatan: pesanPeringatan(r, pengaturan.peek(), false),
+    grafik: r.grafik ?? null,
   };
 }
 
@@ -229,6 +263,7 @@ let msRenderTerakhir = 0;
 
 async function hitungHargaHalaman(produk, saya) {
   if (produk.length === 0) return;
+  const versi = produk.map((p) => p.versiHitung);
   let hasil;
   try {
     ({ hasil } = await kalkulator.hitungBanyak(produk.map((p) => p.data), pengaturan.peek(), tanggalHariIni()));
@@ -238,11 +273,38 @@ async function hitungHargaHalaman(produk, saya) {
   if (saya !== nomorPermintaan) return; // pengguna sudah pindah halaman
   batch(() => {
     hasil.forEach((r, i) => {
-      produk[i].hitung.value = r.ok
-        ? { tahap: 'ok', hargaSen: r.hargaListingSen, coretSen: r.hargaCoretSen, untungSen: r.untungSen }
-        : { tahap: 'galat', galat: r.galat };
+      if (produk[i].versiHitung !== versi[i]) return; // target diubah saat menghitung: hasil usang
+      produk[i].hitung.value = petakanHasil(r, produk[i]);
     });
   });
+}
+
+// Hitung ulang satu produk (mis. setelah target untung diubah) dan segarkan rincian bila terbuka.
+async function hitungUlangSatu(produk) {
+  const versi = ++produk.versiHitung;
+  let r;
+  try {
+    ({ hasil: [r] } = await kalkulator.hitungBanyak([produk.data], pengaturan.peek(), tanggalHariIni()));
+  } catch (e) {
+    r = { ok: false, galat: `Kalkulator gagal: ${e.message}` };
+  }
+  if (versi !== produk.versiHitung) return;
+  produk.hitung.value = petakanHasil(r, produk);
+  if (produk.rincian.peek() !== null) await muatRincian(produk);
+}
+
+async function muatRincian(produk) {
+  if (produk.rincian.peek() === null) produk.rincian.value = { tahap: 'memuat' };
+  const versi = produk.versiHitung;
+  try {
+    const r = await kalkulator.rincian(produk.data, pengaturan.peek(), tanggalHariIni());
+    if (versi !== produk.versiHitung) return;
+    produk.rincian.value = r.ok
+      ? { tahap: 'ok', baris: r.baris, impasSen: r.impasSen }
+      : { tahap: 'galat', galat: pesanGalat(r) };
+  } catch (e) {
+    produk.rincian.value = { tahap: 'galat', galat: `Kalkulator gagal: ${e.message}` };
+  }
 }
 
 async function muatHalaman() {
@@ -300,6 +362,78 @@ wadah.addEventListener('stok-ubah', async (e) => {
     if (!produk) return;
     produk.stok.value = await db.ubahStok(id, selisih);
     await muatRingkasan();
+  } catch (err) {
+    tampilkanPesan(err?.message ?? String(err), 'galat');
+  }
+});
+
+/* ---------------------------------------------------------------
+   Kartu produk (Fase 6): target untung, rincian, cek pesaing, riwayat modal
+---------------------------------------------------------------- */
+const TARGET_MAKS_SEN = 100_000_000_000; // Rp 1 miliar
+
+const cariProduk = (id) => daftarProduk.peek().find((p) => p.id === id);
+
+wadah.addEventListener('target-ubah', (e) => {
+  const produk = cariProduk(e.detail.id);
+  if (!produk) return;
+  const lama = produk.target.peek();
+  const baru = e.detail.reset ? 0 : lama + (e.detail.tambahSen ?? 0);
+  if (!Number.isSafeInteger(baru) || baru < 0 || baru > TARGET_MAKS_SEN) {
+    tampilkanPesan('Target untung di luar batas yang wajar.', 'galat');
+    return;
+  }
+  if (baru === lama) return;
+
+  // Tampilan langsung berubah; penulisan database diurutkan agar ketukan cepat tidak saling timpa.
+  produk.target.value = baru;
+  produk.data.targetUntungSen = baru;
+  produk.antrean = produk.antrean.then(async () => {
+    try {
+      await db.ubahTarget(produk.id, baru);
+      produk.baris.targetUntungSen = baru;
+    } catch (err) {
+      tampilkanPesan(err?.message ?? String(err), 'galat');
+      const tersimpan = produk.baris.targetUntungSen;
+      produk.target.value = tersimpan;
+      produk.data.targetUntungSen = tersimpan;
+    }
+    await hitungUlangSatu(produk);
+  });
+});
+
+wadah.addEventListener('rincian-buka', (e) => {
+  const produk = cariProduk(e.detail.id);
+  if (produk) muatRincian(produk);
+});
+
+wadah.addEventListener('pesaing-hitung', async (e) => {
+  const produk = cariProduk(e.detail.id);
+  if (!produk) return;
+  const versi = ++produk.versiPesaing; // buang hasil lama bila pengguna masih mengetik
+  const teks = String(e.detail.teks ?? '').trim();
+  if (teks === '') { produk.pesaing.value = null; return; }
+
+  const harga = teksKeSen(teks);
+  if (!harga.ok || harga.nilai <= 0) {
+    produk.pesaing.value = { tahap: 'galat', galat: 'Isi harga dengan angka rupiah lebih dari 0, contoh 89900.' };
+    return;
+  }
+  let hasil;
+  try {
+    const r = await kalkulator.pesaing(produk.data, harga.nilai, pengaturan.peek(), tanggalHariIni());
+    hasil = r.ok ? { tahap: 'ok', ...r } : { tahap: 'galat', galat: pesanGalat(r) };
+  } catch (err) {
+    hasil = { tahap: 'galat', galat: `Kalkulator gagal: ${err.message}` };
+  }
+  if (versi === produk.versiPesaing) produk.pesaing.value = hasil;
+});
+
+wadah.addEventListener('riwayat-buka', async (e) => {
+  const produk = cariProduk(e.detail.id);
+  if (!produk) return;
+  try {
+    produk.riwayat.value = barisRiwayat(await db.riwayatModal(produk.id));
   } catch (err) {
     tampilkanPesan(err?.message ?? String(err), 'galat');
   }

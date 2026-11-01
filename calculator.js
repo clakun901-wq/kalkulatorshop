@@ -14,7 +14,7 @@
 // Belum termasuk (sengaja, bukan Fase 3): voucher otomatis/kartu Promosi (vcBest/vcThr
 // di v5.82). Voucher toko manual (persen/nominal) sudah ada.
 
-export const VERSI_KALKULATOR = '6.0.0-fase3';
+export const VERSI_KALKULATOR = '6.0.0-fase6';
 
 export const SEN_PER_RUPIAH = 100;
 export const PPM_PENUH = 1_000_000; // 100%
@@ -138,12 +138,14 @@ export const PENGATURAN_BAWAAN = Object.freeze({
   diskonCoret: { aktif: true, mode: 'pct', nilai: 300_000 }, // pct: ppm | nom: sen
   voucher: { mode: 'none', nilai: 0, batasSen: 0 }, // pct: ppm | nom: sen
   pembulatan: { langkahSen: 10_000, akhiranSen: 0 },
+  // Batas peringatan (setara wu/wm/wp di v5.82): untung min Rp 2.000, margin min 1%, potongan maks 30%.
+  peringatan: { untungMinSen: 200_000, marginMinPpm: 10_000, potonganMaksPpm: 300_000 },
   tabel: null, // { AD: { A: [ppm, ppm] }, GO: { A: [ppm, ppm] } } untuk menimpa tabel
 });
 
 const KELOMPOK = [
   'biayaProses', 'pembayaran', 'administrasi', 'gratisOngkirXtra',
-  'promoXtra', 'videoXtra', 'liveXtra', 'diskonCoret', 'voucher', 'pembulatan',
+  'promoXtra', 'videoXtra', 'liveXtra', 'diskonCoret', 'voucher', 'pembulatan', 'peringatan',
 ];
 
 export function gabungPengaturan(ubah = {}) {
@@ -359,8 +361,16 @@ function bangunKonteks(produk, pengaturan, tanggal, pipa = PIPA_MAJU) {
   return { R, modal, maju, majuDariCoret };
 }
 
-function keHasil(o, R) {
-  return {
+// round(|a| * 1.000.000 / b) bertanda, b > 0 (BigInt: a bisa melebihi batas aman bila dikali 1e6).
+function ppmDari(a, b) {
+  if (!(b > 0)) return 0;
+  const mutlak = a < 0 ? -a : a;
+  const hasil = Number((BigInt(mutlak) * 1_000_000n + BigInt(Math.floor(b / 2))) / BigInt(b));
+  return a < 0 ? -hasil : hasil;
+}
+
+function keHasil(o, R, pengaturan) {
+  const hasil = {
     ok: true,
     hargaCoretSen: o.M,
     hargaListingSen: o.L,
@@ -385,7 +395,38 @@ function keHasil(o, R) {
     modalSen: o.modal,
     untungSen: o.u,
     tarif: R,
+    // Fase 6: margin dan potongan dihitung dari harga pembeli (setelah voucher), seperti v5.82.
+    marginPpm: ppmDari(o.u, o.P),
+    potonganPpm: ppmDari(o.sh + o.pm + o.tax, o.P),
   };
+  const periksa = periksaHasil(hasil, pengaturan);
+  hasil.tingkat = periksa.tingkat; // '' | 'y' (kuning) | 'r' (merah)
+  hasil.kode = periksa.kode; // 'rugi' | 'nol' | 'tipis' | 'potongan'
+  return hasil;
+}
+
+// Peringatan untung (port warns() v5.82). Perbandingan memakai bilangan bulat penuh,
+// tanpa pembagian float: margin < batas  <=>  untung x 1.000.000 < batasPpm x harga pembeli.
+export function periksaHasil(hasil, pengaturanParsial = {}) {
+  const w = gabungPengaturan(pengaturanParsial).peringatan;
+  const P = hasil.hargaPembeliSen;
+  const u = hasil.untungSen;
+  const kode = [];
+  let tingkat = '';
+
+  const marginDiBawah = P > 0
+    ? BigInt(u) * 1_000_000n < BigInt(w.marginMinPpm) * BigInt(P)
+    : w.marginMinPpm > 0;
+  if (u < 0) { tingkat = 'r'; kode.push('rugi'); }
+  else if (u === 0) { tingkat = 'r'; kode.push('nol'); }
+  else if (u < w.untungMinSen || marginDiBawah) { tingkat = 'y'; kode.push('tipis'); }
+
+  const potongan = hasil.biaya.totalPlatformSen + hasil.premiSen + hasil.pajakSen;
+  if (P > 0 && BigInt(potongan) * 1_000_000n > BigInt(w.potonganMaksPpm) * BigInt(P)) {
+    tingkat = tingkat || 'y';
+    kode.push('potongan');
+  }
+  return { tingkat, kode };
 }
 
 // Hitung maju dari harga listing (harga setelah diskon coret, sebelum voucher).
@@ -397,7 +438,7 @@ export function hitungMaju(produk, listingSen, pengaturanParsial = {}, tanggal =
   const { R, maju } = bangunKonteks(produk, pengaturan, tanggal, pipa);
   const o = maju(listingSen);
   o.M = listingSen;
-  return keHasil(o, R);
+  return keHasil(o, R, pengaturan);
 }
 
 // Cari harga coret terendah (di grid pembulatan) yang mencapai target untung.
@@ -499,7 +540,7 @@ export function hitungHarga(produk, pengaturanParsial = {}, tanggal = '1970-01-0
     else break;
   }
 
-  return keHasil(o, R);
+  return keHasil(o, R, p);
 }
 
 // Harga listing terendah yang tidak rugi (untung >= 0), konservatif 5 rupiah ke atas.

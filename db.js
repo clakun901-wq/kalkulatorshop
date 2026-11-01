@@ -1,4 +1,4 @@
-// db.js — pintu masuk penyimpanan Kalsara v6 (Fase 2)
+// db.js — pintu masuk penyimpanan Kalsara v6 (Fase 2; Fase 6 menambah ubahTarget dan riwayatModal)
 //
 // Utas utama TIDAK menyentuh SQLite. File ini hanya mengirim perintah ke
 // db.worker.js lewat postMessage dan mengembalikan hasilnya sebagai Promise.
@@ -70,7 +70,9 @@ export const db = {
   tambahBanyak: (daftar) => panggil('tambahBanyak', daftar),
   ubahStok: (id, selisih) => panggil('ubahStok', { id, selisih }),
   ubahStokMassal: (daftar) => panggil('ubahStokMassal', daftar),
-  ubahProduk: (produk) => panggil('ubahProduk', produk), // { id, ...field produk }
+  ubahProduk: (produk) => panggil('ubahProduk', produk), // { id, ...field produk }; modal berubah -> masuk riwayat
+  ubahTarget: (id, targetUntungSen) => panggil('ubahTarget', { id, targetUntungSen }), // -> target tersimpan (sen)
+  riwayatModal: (id, batas = 20) => panggil('riwayatModal', { id, batas }), // -> [{ lamaSen, baruSen, dicatatPada }]
   hapus: (id) => panggil('hapus', id),
   ambilPengaturan: () => panggil('ambilPengaturan'), // objek atau null bila belum pernah disimpan
   simpanPengaturan: (pengaturan) => panggil('simpanPengaturan', pengaturan),

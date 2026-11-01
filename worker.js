@@ -12,6 +12,9 @@
 //   hitungBanyak  { daftar, pengaturan, tanggal }          -> { hasil: [...], ms }
 //   hitungMaju    { produk, listingSen, pengaturan, tanggal }
 //   impas         { produk, pengaturan, tanggal }
+//   rincian       { produk, pengaturan, tanggal }   -> baris rincian biaya + harga impas (Fase 6)
+//   pesaing       { produk, hargaSen, pengaturan, tanggal } -> hitung terbalik dari harga pesaing (Fase 6)
+//   grafik        (ikut dalam hitungBanyak, lihat di bawah)
 //
 // Catatan: di build satu-file HTML, worker ini digabung dengan calculator.js
 // (baris import di bawah dibuang oleh skrip build).
@@ -22,6 +25,7 @@ import {
   hitungMaju,
   hargaImpas,
 } from './calculator.js';
+import { bagianGrafik, barisRincian, pesanPeringatan } from './rincian.js';
 
 const OPERASI = {
   ping() {
@@ -36,7 +40,11 @@ const OPERASI = {
     if (!Array.isArray(daftar)) throw new Error('daftar harus berupa array produk.');
     const mulai = performance.now();
     // Satu produk yang salah tidak menggagalkan yang lain: galatnya ikut dikembalikan.
-    const hasil = daftar.map((produk) => hitungHarga(produk, pengaturan, tanggal));
+    const hasil = daftar.map((produk) => {
+      const h = hitungHarga(produk, pengaturan, tanggal);
+      if (h.ok) h.grafik = bagianGrafik(h);
+      return h;
+    });
     return { hasil, ms: performance.now() - mulai };
   },
 
@@ -46,6 +54,37 @@ const OPERASI = {
 
   impas({ produk, pengaturan, tanggal }) {
     return hargaImpas(produk, pengaturan, tanggal);
+  },
+
+  // Rincian lengkap satu produk (dipanggil saat pengguna membuka "Lihat rincian biaya").
+  rincian({ produk, pengaturan, tanggal }) {
+    const hasil = hitungHarga(produk, pengaturan, tanggal);
+    if (!hasil.ok) return hasil;
+    const impas = hargaImpas(produk, pengaturan, tanggal);
+    const impasSen = impas.ok ? impas.hargaListingSen : null;
+    return {
+      ok: true,
+      baris: barisRincian(hasil, { impasSen, targetSen: produk.targetUntungSen ?? 0 }),
+      impasSen,
+    };
+  },
+
+  // Hitung terbalik: dengan harga diskon coret `hargaSen` (mis. harga pesaing), berapa untungnya?
+  pesaing({ produk, hargaSen, pengaturan, tanggal }) {
+    const hasil = hitungMaju(produk, hargaSen, pengaturan, tanggal);
+    if (!hasil.ok) return hasil;
+    const impas = hargaImpas(produk, pengaturan, tanggal);
+    const impasSen = impas.ok ? impas.hargaListingSen : null;
+    return {
+      ok: true,
+      hargaSen: hasil.hargaListingSen,
+      baris: barisRincian(hasil, { targetSen: 0 }),
+      peringatan: pesanPeringatan(hasil, pengaturan, true),
+      untungSen: hasil.untungSen,
+      marginPpm: hasil.marginPpm,
+      impasSen,
+      selisihImpasSen: impasSen === null ? null : hasil.hargaListingSen - impasSen,
+    };
   },
 };
 

@@ -52,4 +52,11 @@ export const kalkulator = {
     panggil('hitungBanyak', { daftar, pengaturan, tanggal }),
 
   impas: (produk, pengaturan, tanggal) => panggil('impas', { produk, pengaturan, tanggal }),
+
+  // Fase 6. rincian -> { ok, baris, impasSen }
+  rincian: (produk, pengaturan, tanggal) => panggil('rincian', { produk, pengaturan, tanggal }),
+
+  // Fase 6. pesaing -> { ok, baris, peringatan, untungSen, marginPpm, impasSen, selisihImpasSen }
+  pesaing: (produk, hargaSen, pengaturan, tanggal) =>
+    panggil('pesaing', { produk, hargaSen, pengaturan, tanggal }),
 };

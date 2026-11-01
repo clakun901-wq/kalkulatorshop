@@ -13,6 +13,9 @@
   --warna-aman: #1f7a4d;
   --warna-menipis: #a66300;
   --warna-habis: #b3261e;
+  --warna-grafik-modal: #6b8196;
+  --warna-grafik-potongan: #d19a2e;
+  --warna-grafik-untung: #1f7a4d;
 
   --radius-kartu: 10px;
   --radius-kontrol: 6px;
@@ -34,6 +37,9 @@
     --warna-aman: #5fd09a;
     --warna-menipis: #f0b45a;
     --warna-habis: #ff8a80;
+    --warna-grafik-modal: #7f95a8;
+    --warna-grafik-potongan: #e0b252;
+    --warna-grafik-untung: #5fd09a;
   }
 }
 
