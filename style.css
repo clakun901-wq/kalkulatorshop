@@ -245,6 +245,7 @@ button:disabled {
 
 /* ---- Fase 5: tab, formulir, dialog ---- */
 .tab {
+  overflow-x: auto;
   display: flex;
   gap: 4px;
   padding: 0 var(--ruang);
@@ -256,7 +257,7 @@ button:disabled {
 }
 .tab button {
   min-height: 48px;
-  padding: 0 18px;
+  padding: 0 12px;
   background: transparent;
   color: var(--warna-teks-redup);
   border: 0;
@@ -391,3 +392,55 @@ dialog .aksi-form {
   font-weight: 600;
 }
 .judul-kelompok:first-child { margin-top: 0; }
+
+/* ---- Fase 8: tab Laporan (tampilan dasar; dirapikan di akhir) ---- */
+.filter-laporan {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 0 var(--ruang) var(--ruang);
+}
+.statistik {
+  list-style: none;
+  margin: 0 var(--ruang) var(--ruang);
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+  background: var(--warna-permukaan);
+  border: 1px solid var(--warna-garis);
+  border-radius: var(--radius-kartu);
+  font-variant-numeric: tabular-nums;
+}
+.statistik:empty { display: none; }
+.statistik li { display: flex; justify-content: space-between; gap: 12px; }
+.statistik .label { color: var(--warna-teks-redup); }
+.statistik .kosong { display: block; margin: 0; padding: 0; }
+.judul-laporan { margin: 0 var(--ruang) 8px; }
+.daftar-laporan {
+  list-style: none;
+  margin: 0 var(--ruang) var(--ruang);
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.baris-laporan {
+  padding: 10px 12px;
+  background: var(--warna-permukaan);
+  border: 1px solid var(--warna-garis);
+  border-radius: var(--radius-kontrol);
+  overflow-wrap: anywhere;
+}
+.baris-laporan .utama { display: flex; gap: 8px; font-weight: 600; }
+.baris-laporan .urutan { color: var(--warna-teks-redup); font-variant-numeric: tabular-nums; }
+.baris-laporan .rinci {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 4px;
+  font-size: 0.8125rem;
+  color: var(--warna-teks-redup);
+  font-variant-numeric: tabular-nums;
+}
+.untung { color: var(--warna-aman); }
+.rugi { color: var(--warna-habis); }

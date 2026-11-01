@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Kalsara <span class="versi">v6 · Fase 7</span></h1>
+    <h1>Kalsara <span class="versi">v6 · Fase 8</span></h1>
     <p class="ringkas" id="ringkas" aria-live="polite">Menyiapkan penyimpanan…</p>
     <p class="status-db" id="status-db"></p>
   </header>
@@ -20,6 +20,7 @@
   <nav class="tab" role="tablist" aria-label="Menu utama">
     <button type="button" role="tab" id="tab-hitung" aria-selected="true" aria-controls="panel-hitung">Hitung</button>
     <button type="button" role="tab" id="tab-etalase" aria-selected="false" aria-controls="panel-etalase" tabindex="-1">Etalase</button>
+    <button type="button" role="tab" id="tab-laporan" aria-selected="false" aria-controls="panel-laporan" tabindex="-1">Laporan</button>
     <button type="button" role="tab" id="tab-setelan" aria-selected="false" aria-controls="panel-setelan" tabindex="-1">Setelan</button>
   </nav>
 
@@ -75,6 +76,41 @@
     </nav>
   </section>
 
+  <section id="panel-laporan" role="tabpanel" aria-labelledby="tab-laporan" hidden>
+    <p class="catatan etalase-catatan">
+      Penjualan yang dicatat lewat tombol <b>−</b> di tab Etalase. Untung dihitung saat penjualan terjadi
+      (memakai pengaturan toko saat itu), jadi laporan lama tidak berubah bila Setelan diganti.
+    </p>
+
+    <section class="filter-laporan" aria-label="Periode dan urutan">
+      <label for="periode-laporan">Periode</label>
+      <select id="periode-laporan"></select>
+      <label for="urut-laporan">Urutkan produk</label>
+      <select id="urut-laporan">
+        <option value="untung">Untung terbesar</option>
+        <option value="terjual">Paling laku</option>
+      </select>
+    </section>
+
+    <ul class="statistik" id="ringkas-laporan" aria-live="polite"></ul>
+
+    <h2 class="judul-kelompok judul-laporan">Produk teratas</h2>
+    <ul class="daftar-laporan" id="produk-laporan"></ul>
+
+    <h2 class="judul-kelompok judul-laporan">Daftar penjualan</h2>
+    <ul class="daftar-laporan" id="daftar-penjualan"></ul>
+
+    <nav class="pager" aria-label="Halaman Laporan">
+      <button type="button" id="btn-sebelumnya-laporan" class="sekunder" disabled>Sebelumnya</button>
+      <span id="info-halaman-laporan" aria-live="polite"></span>
+      <button type="button" id="btn-berikutnya-laporan" class="sekunder" disabled>Berikutnya</button>
+    </nav>
+
+    <section class="toolbar" aria-label="Ekspor">
+      <button type="button" id="btn-ekspor" class="sekunder" disabled>Ekspor CSV periode ini</button>
+    </section>
+  </section>
+
   <section id="panel-setelan" role="tabpanel" aria-labelledby="tab-setelan" hidden>
     <form id="form-setelan" class="form-panel" novalidate>
       <h2>Pengaturan toko</h2>
@@ -103,7 +139,7 @@
       </section>
     </details>
 
-    <p class="catatan">Promosi, Laporan, Tarif, dan ERP menyusul di fase berikutnya.</p>
+    <p class="catatan">Promosi, Tarif, dan ERP menyusul di fase berikutnya.</p>
   </section>
 
   <dialog id="dlg-produk" aria-labelledby="judul-produk">

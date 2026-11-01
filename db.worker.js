@@ -155,6 +155,26 @@ function migrasi() {
 }
 
 /* ---------------------------------------------------------------
+   Fase 8: pembantu laporan
+---------------------------------------------------------------- */
+const BATAS_EKSPOR = 100_000;
+
+function cekRentang(r) {
+  const dari = r?.dari;
+  const sampai = r?.sampai;
+  if (!Number.isSafeInteger(dari) || dari < 0) throw new Error('Awal periode tidak valid.');
+  if (!Number.isSafeInteger(sampai) || sampai < dari) throw new Error('Akhir periode tidak valid.');
+  return { dari, sampai };
+}
+
+function rapikanPenjualan(b) {
+  return {
+    id: Number(b.id), dicatatPada: Number(b.dicatatPada), sku: b.sku, nama: b.nama,
+    hargaSen: Number(b.hargaSen), untungSen: Number(b.untungSen),
+  };
+}
+
+/* ---------------------------------------------------------------
    Validasi (uang wajib bilangan bulat sen)
 ---------------------------------------------------------------- */
 function bulatTakNegatif(nilai, nama, bawaan = 0) {
@@ -568,6 +588,75 @@ const OPERASI = {
       [sejak]
     );
     return { jumlah: Number(r.jumlah), untungSen: Number(r.untungSen) };
+  },
+
+  // Fase 8 (Laporan): semua operasi hanya MEMBACA tabel penjualan, jadi skema tetap v5.
+  // Rentang waktu [dari, sampai) dalam ms.
+  laporanRingkas(r) {
+    const { dari, sampai } = cekRentang(r);
+    const x = db.selectObject(
+      `SELECT COUNT(*) AS jumlah, COALESCE(SUM(harga_sen), 0) AS omzetSen, COALESCE(SUM(untung_sen), 0) AS untungSen,
+              COALESCE(SUM(untung_sen < 0), 0) AS jumlahRugi
+       FROM penjualan WHERE dicatat_pada >= ? AND dicatat_pada < ?`,
+      [dari, sampai]
+    );
+    return { jumlah: Number(x.jumlah), omzetSen: Number(x.omzetSen), untungSen: Number(x.untungSen), jumlahRugi: Number(x.jumlahRugi) };
+  },
+
+  // Ringkasan per SKU. urut: 'untung' (untung terbesar) atau 'terjual' (paling laku).
+  // stok = stok produk saat ini (null bila produknya sudah dihapus).
+  laporanProduk(r) {
+    const { dari, sampai } = cekRentang(r);
+    const batas = r?.batas ?? 10;
+    if (!Number.isSafeInteger(batas) || batas < 1 || batas > 500) throw new Error('batas harus 1-500.');
+    const urut = r?.urut ?? 'untung';
+    if (urut !== 'untung' && urut !== 'terjual') throw new Error('urutan tidak dikenal.');
+    const urutSql = urut === 'untung' ? 'untungSen DESC, terjual DESC, sku' : 'terjual DESC, untungSen DESC, sku';
+    return db.selectObjects(
+      `SELECT p.sku AS sku, MAX(p.nama) AS nama, COUNT(*) AS terjual, SUM(p.harga_sen) AS omzetSen,
+              SUM(p.untung_sen) AS untungSen, MAX(k.stok) AS stok
+       FROM penjualan p LEFT JOIN produk k ON k.id = p.produk_id
+       WHERE p.dicatat_pada >= ? AND p.dicatat_pada < ?
+       GROUP BY p.sku ORDER BY ${urutSql} LIMIT ?`,
+      [dari, sampai, batas]
+    ).map((b) => ({
+      sku: b.sku, nama: b.nama, terjual: Number(b.terjual), omzetSen: Number(b.omzetSen),
+      untungSen: Number(b.untungSen), stok: b.stok === null || b.stok === undefined ? null : Number(b.stok),
+    }));
+  },
+
+  // Daftar penjualan terbaru lebih dulu, per halaman.
+  daftarPenjualan(r) {
+    const { dari, sampai } = cekRentang(r);
+    const batas = r?.batas ?? 25;
+    const offset = r?.offset ?? 0;
+    if (!Number.isSafeInteger(batas) || batas < 1 || batas > 500) throw new Error('batas harus 1-500.');
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('offset tidak valid.');
+    const total = Number(db.selectValue(
+      'SELECT COUNT(*) FROM penjualan WHERE dicatat_pada >= ? AND dicatat_pada < ?', [dari, sampai]
+    ));
+    const baris = db.selectObjects(
+      `SELECT id, dicatat_pada AS dicatatPada, sku, nama, harga_sen AS hargaSen, untung_sen AS untungSen
+       FROM penjualan WHERE dicatat_pada >= ? AND dicatat_pada < ?
+       ORDER BY dicatat_pada DESC, id DESC LIMIT ? OFFSET ?`,
+      [dari, sampai, batas, offset]
+    ).map(rapikanPenjualan);
+    return { baris, total };
+  },
+
+  // Seluruh penjualan dalam rentang (urut waktu naik) untuk ekspor CSV.
+  semuaPenjualan(r) {
+    const { dari, sampai } = cekRentang(r);
+    const baris = db.selectObjects(
+      `SELECT id, dicatat_pada AS dicatatPada, sku, nama, harga_sen AS hargaSen, untung_sen AS untungSen
+       FROM penjualan WHERE dicatat_pada >= ? AND dicatat_pada < ?
+       ORDER BY dicatat_pada, id LIMIT ?`,
+      [dari, sampai, BATAS_EKSPOR + 1]
+    );
+    if (baris.length > BATAS_EKSPOR) {
+      throw new Error(`Lebih dari ${BATAS_EKSPOR.toLocaleString('id-ID')} penjualan. Pilih periode yang lebih pendek.`);
+    }
+    return baris.map(rapikanPenjualan);
   },
 
   hapus(id) {

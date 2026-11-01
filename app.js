@@ -25,6 +25,7 @@ import {
   produkDariIsian,
 } from './isian.js';
 import { bangunFormulir } from './form.js';
+import { pasangLaporan } from './laporan-ui.js';
 
 const BATAS_HALAMAN = 24;
 const JEDA_CARI_MS = 300;
@@ -169,6 +170,7 @@ const tombolAksi = ['btn-tambah', 'btn-acak', 'btn-dummy', 'btn-beban', 'btn-hap
 const TAB = {
   hitung: { tab: $('tab-hitung'), panel: $('panel-hitung') },
   etalase: { tab: $('tab-etalase'), panel: $('panel-etalase') },
+  laporan: { tab: $('tab-laporan'), panel: $('panel-laporan') },
   setelan: { tab: $('tab-setelan'), panel: $('panel-setelan') },
 };
 let tabAktif = 'hitung';
@@ -187,7 +189,7 @@ function pilihTab(nama) {
   if (dari === 'etalase' && gembok.kunciSemua()) segarkanGembok();
   // Data dimuat ulang saat tab dibuka, jadi stok dan harga di dua tab tidak saling usang.
   if (statusDb.peek().tahap === 'siap') {
-    const muat = nama === 'etalase' ? muatEtalase : nama === 'hitung' ? muatHalaman : null;
+    const muat = nama === 'etalase' ? muatEtalase : nama === 'hitung' ? muatHalaman : nama === 'laporan' ? laporan.muat : null;
     muat?.().catch((e) => tampilkanPesan(e?.message ?? String(e), 'galat'));
   }
 }
@@ -365,6 +367,9 @@ function tampilkanPesan(teks, jenis = 'info') {
   clearTimeout(waktuPesan);
   waktuPesan = setTimeout(() => { pesan.value = { teks: '', jenis }; }, 7000);
 }
+
+// Tab Laporan (Fase 8): modul sendiri, hanya membaca tabel penjualan.
+const laporan = pasangLaporan({ tampilkanPesan });
 
 function tampilkanGalat(elDaftar, daftar) {
   elDaftar.replaceChildren(...daftar.map((teks) => h('li', { text: teks })));

@@ -1,4 +1,4 @@
-// db.js — pintu masuk penyimpanan Kalsara v6 (Fase 2; Fase 6: ubahTarget, riwayatModal; Fase 7: Etalase)
+// db.js — pintu masuk penyimpanan Kalsara v6 (Fase 2; Fase 6: ubahTarget, riwayatModal; Fase 7: Etalase; Fase 8: Laporan)
 //
 // Utas utama TIDAK menyentuh SQLite. File ini hanya mengirim perintah ke
 // db.worker.js lewat postMessage dan mengembalikan hasilnya sebagai Promise.
@@ -80,6 +80,11 @@ export const db = {
   // -> { id, produkId, sku, nama, hargaSen, untungSen, dicatatPada, stok } (stok sesudah dikurangi 1)
   batalkanPenjualan: (id) => panggil('batalkanPenjualan', { id }), // -> { stok } (null bila produk sudah dihapus)
   ringkasanPenjualan: (sejak) => panggil('ringkasanPenjualan', { sejak }), // -> { jumlah, untungSen }
+  // Fase 8 (Laporan, hanya membaca). Rentang { dari, sampai } dalam ms, `sampai` tidak ikut.
+  laporanRingkas: (rentang) => panggil('laporanRingkas', rentang), // -> { jumlah, omzetSen, untungSen, jumlahRugi }
+  laporanProduk: (opsi) => panggil('laporanProduk', opsi), // { dari, sampai, batas, urut: 'untung' | 'terjual' } -> [{ sku, nama, terjual, omzetSen, untungSen, stok }]
+  daftarPenjualan: (opsi) => panggil('daftarPenjualan', opsi), // { dari, sampai, batas, offset } -> { baris, total }
+  semuaPenjualan: (rentang) => panggil('semuaPenjualan', rentang), // -> [{ id, dicatatPada, sku, nama, hargaSen, untungSen }]
   hapus: (id) => panggil('hapus', id),
   ambilPengaturan: () => panggil('ambilPengaturan'), // objek atau null bila belum pernah disimpan
   simpanPengaturan: (pengaturan) => panggil('simpanPengaturan', pengaturan),
