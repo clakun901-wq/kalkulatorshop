@@ -236,3 +236,124 @@ button:disabled {
   border-color: var(--warna-aman);
   color: var(--warna-aman);
 }
+
+/* ---- Fase 5: tab, formulir, dialog ---- */
+.tab {
+  display: flex;
+  gap: 4px;
+  padding: 0 var(--ruang);
+  background: var(--warna-permukaan);
+  border-bottom: 1px solid var(--warna-garis);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.tab button {
+  min-height: 48px;
+  padding: 0 18px;
+  background: transparent;
+  color: var(--warna-teks-redup);
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+}
+.tab button[aria-selected="true"] {
+  color: var(--warna-aksen);
+  border-bottom-color: var(--warna-aksen);
+  font-weight: 600;
+}
+
+[role="tabpanel"][hidden] { display: none; }
+
+.info {
+  margin: var(--ruang) var(--ruang) 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warna-aksen);
+  border-radius: var(--radius-kontrol);
+  color: var(--warna-teks);
+  font-size: 0.875rem;
+}
+.info[hidden] { display: none; }
+
+.form-panel { padding: var(--ruang); }
+.form-panel h2 { margin: 0 0 4px; font-size: 1.125rem; }
+.catatan { margin: 0 var(--ruang) var(--ruang); font-size: 0.8125rem; color: var(--warna-teks-redup); }
+.form-panel .catatan { margin-left: 0; margin-right: 0; }
+
+fieldset.kelompok {
+  margin: 0 0 var(--ruang);
+  padding: 8px 12px 4px;
+  border: 1px solid var(--warna-garis);
+  border-radius: var(--radius-kartu);
+  background: var(--warna-permukaan);
+}
+fieldset.kelompok legend { padding: 0 6px; font-weight: 600; font-size: 0.9375rem; }
+
+.bidang { display: grid; gap: 4px; margin-bottom: 12px; }
+.bidang label { font-size: 0.875rem; }
+.bidang small { font-size: 0.75rem; color: var(--warna-teks-redup); }
+.bidang input[type="text"],
+.bidang input[type="date"],
+.bidang select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  font: inherit;
+  color: var(--warna-teks);
+  background: var(--warna-latar);
+  border: 1px solid var(--warna-garis);
+  border-radius: var(--radius-kontrol);
+}
+.bidang input:focus-visible,
+.bidang select:focus-visible { outline: 3px solid var(--warna-aksen); outline-offset: 2px; }
+.bidang.cek {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  column-gap: 8px;
+}
+.bidang.cek input { width: 22px; height: 22px; }
+.bidang.cek small { grid-column: 2; }
+
+.galat {
+  margin: 0 0 12px;
+  padding: 10px 12px 10px 28px;
+  border: 1px solid var(--warna-habis);
+  border-radius: var(--radius-kontrol);
+  color: var(--warna-habis);
+  font-size: 0.875rem;
+}
+.galat[hidden] { display: none; }
+
+.aksi-form { display: flex; flex-wrap: wrap; gap: 8px; }
+button.bahaya { color: var(--warna-habis); border-color: var(--warna-habis); }
+
+details.alat { margin: 0 var(--ruang) var(--ruang); }
+details.alat summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+details.alat .toolbar { padding-left: 0; padding-right: 0; }
+details.alat .panel-beban { margin-left: 0; margin-right: 0; }
+
+dialog {
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  padding: var(--ruang);
+  color: var(--warna-teks);
+  background: var(--warna-permukaan);
+  border: 1px solid var(--warna-garis);
+  border-radius: var(--radius-kartu);
+}
+dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+dialog h2 { margin: 0 0 12px; font-size: 1.125rem; }
+
+.pesan { position: sticky; top: 0; z-index: 6; background: var(--warna-permukaan); }
+.tab { top: 0; }
+
+/* Tombol aksi dialog tetap terlihat saat formulir panjang digulir */
+dialog .aksi-form {
+  position: sticky;
+  bottom: 0;
+  margin: 8px calc(var(--ruang) * -1) calc(var(--ruang) * -1);
+  padding: 12px var(--ruang);
+  background: var(--warna-permukaan);
+  border-top: 1px solid var(--warna-garis);
+}

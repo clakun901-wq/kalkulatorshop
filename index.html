@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Kalsara <span class="versi">v6 · Fase 4</span></h1>
+    <h1>Kalsara <span class="versi">v6 · Fase 5</span></h1>
     <p class="ringkas" id="ringkas" aria-live="polite">Menyiapkan penyimpanan…</p>
     <p class="status-db" id="status-db"></p>
   </header>
@@ -17,32 +17,78 @@
   <p class="peringatan" id="peringatan" role="alert" hidden></p>
   <p class="pesan" id="pesan" role="status" aria-live="polite" hidden></p>
 
-  <section class="toolbar" aria-label="Aksi uji">
-    <button type="button" id="btn-tambah" disabled>Tambah produk contoh</button>
-    <button type="button" id="btn-dummy" class="sekunder" disabled>Isi 1.000 data dummy</button>
-    <button type="button" id="btn-beban" class="sekunder" disabled>Uji beban 1.000 produk</button>
-    <button type="button" id="btn-acak" class="sekunder" disabled>Ubah stok acak (halaman ini)</button>
-    <button type="button" id="btn-hapus-semua" class="sekunder" disabled>Hapus semua data</button>
-    <a class="tautan" href="./uji-fase3.html">Uji kalkulator</a>
-  </section>
-
-  <section class="panel-beban" id="panel-beban" aria-label="Hasil uji beban" hidden>
-    <h2>Hasil uji beban</h2>
-    <ul id="hasil-beban"></ul>
-  </section>
-
-  <section class="cari-baris" aria-label="Pencarian">
-    <label for="cari" class="sr-only">Cari produk</label>
-    <input id="cari" type="search" placeholder="Cari nama atau SKU" autocomplete="off" disabled>
-  </section>
-
-  <main id="daftar" class="daftar" aria-label="Daftar produk"></main>
-
-  <nav class="pager" aria-label="Halaman">
-    <button type="button" id="btn-sebelumnya" class="sekunder" disabled>Sebelumnya</button>
-    <span id="info-halaman" aria-live="polite"></span>
-    <button type="button" id="btn-berikutnya" class="sekunder" disabled>Berikutnya</button>
+  <nav class="tab" role="tablist" aria-label="Menu utama">
+    <button type="button" role="tab" id="tab-hitung" aria-selected="true" aria-controls="panel-hitung">Hitung</button>
+    <button type="button" role="tab" id="tab-setelan" aria-selected="false" aria-controls="panel-setelan" tabindex="-1">Setelan</button>
   </nav>
+
+  <section id="panel-hitung" role="tabpanel" aria-labelledby="tab-hitung">
+    <p class="info" id="info-setelan" hidden>
+      Pengaturan toko masih memakai nilai bawaan, jadi harga belum tentu cocok dengan toko Anda.
+      Buka tab <b>Setelan</b> lalu simpan pengaturan toko.
+    </p>
+
+    <section class="toolbar" aria-label="Aksi produk">
+      <button type="button" id="btn-tambah" disabled>Tambah produk</button>
+    </section>
+
+    <section class="cari-baris" aria-label="Pencarian">
+      <label for="cari" class="sr-only">Cari produk</label>
+      <input id="cari" type="search" placeholder="Cari nama atau SKU" autocomplete="off" disabled>
+    </section>
+
+    <main id="daftar" class="daftar" aria-label="Daftar produk"></main>
+
+    <nav class="pager" aria-label="Halaman">
+      <button type="button" id="btn-sebelumnya" class="sekunder" disabled>Sebelumnya</button>
+      <span id="info-halaman" aria-live="polite"></span>
+      <button type="button" id="btn-berikutnya" class="sekunder" disabled>Berikutnya</button>
+    </nav>
+  </section>
+
+  <section id="panel-setelan" role="tabpanel" aria-labelledby="tab-setelan" hidden>
+    <form id="form-setelan" class="form-panel" novalidate>
+      <h2>Pengaturan toko</h2>
+      <p class="catatan">Semua harga jual dan untung dihitung dari pengaturan ini. Isi sesuai kondisi toko Anda di Seller Centre.</p>
+      <div id="isi-form-setelan"></div>
+      <ul class="galat" id="galat-setelan" role="alert" hidden></ul>
+      <div class="aksi-form">
+        <button type="submit" id="btn-simpan-setelan">Simpan pengaturan</button>
+        <button type="button" id="btn-reset-setelan" class="sekunder">Kembalikan ke bawaan</button>
+      </div>
+    </form>
+
+    <details class="alat">
+      <summary>Alat uji (untuk pengembangan)</summary>
+      <section class="toolbar" aria-label="Alat uji">
+        <button type="button" id="btn-dummy" class="sekunder" disabled>Isi 1.000 data dummy</button>
+        <button type="button" id="btn-beban" class="sekunder" disabled>Uji beban 1.000 produk</button>
+        <button type="button" id="btn-acak" class="sekunder" disabled>Ubah stok acak (halaman ini)</button>
+        <button type="button" id="btn-hapus-semua" class="sekunder bahaya" disabled>Hapus semua data</button>
+        <a class="tautan" href="./uji-fase3.html">Uji kalkulator</a>
+      </section>
+
+      <section class="panel-beban" id="panel-beban" aria-label="Hasil uji beban" hidden>
+        <h2>Hasil uji beban</h2>
+        <ul id="hasil-beban"></ul>
+      </section>
+    </details>
+
+    <p class="catatan">Tab Etalase, Promosi, Laporan, Tarif, dan ERP menyusul di fase berikutnya.</p>
+  </section>
+
+  <dialog id="dlg-produk" aria-labelledby="judul-produk">
+    <form id="form-produk" novalidate>
+      <h2 id="judul-produk">Tambah produk</h2>
+      <div id="isi-form-produk"></div>
+      <ul class="galat" id="galat-produk" role="alert" hidden></ul>
+      <div class="aksi-form">
+        <button type="submit" id="btn-simpan-produk">Simpan</button>
+        <button type="button" id="btn-batal-produk" class="sekunder">Batal</button>
+        <button type="button" id="btn-hapus-produk" class="sekunder bahaya" hidden>Hapus produk</button>
+      </div>
+    </form>
+  </dialog>
 
   <noscript>Kalsara membutuhkan JavaScript untuk berjalan.</noscript>
 

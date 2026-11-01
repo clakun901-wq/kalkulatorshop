@@ -113,6 +113,25 @@ gayaKartu.replaceSync(`
     font-variant-numeric: tabular-nums;
     color: var(--warna-teks-redup, #5a6b78);
   }
+  .aksi {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .aksi button {
+    min-height: 44px;
+    padding: 0 14px;
+    font: inherit;
+    font-size: 0.875rem;
+    border: 1px solid var(--warna-aksen, #12456e);
+    border-radius: var(--radius-kontrol, 6px);
+    background: transparent;
+    color: var(--warna-aksen, #12456e);
+    cursor: pointer;
+  }
+  .aksi button:focus-visible {
+    outline: 3px solid var(--warna-aksen, #12456e);
+    outline-offset: 2px;
+  }
   .baris-stok {
     display: flex;
     align-items: center;
@@ -151,7 +170,7 @@ gayaKartu.replaceSync(`
 /* ---------------------------------------------------------------
    <product-card>
    Properti `produk` berisi { id, sku, nama, stok: signal, hitung: signal }.
-   `hitung` = { tahap: 'menunggu' | 'ok' | 'galat', hargaSen, untungSen, galat }
+   `hitung` = { tahap: 'menunggu' | 'ok' | 'galat', hargaSen, coretSen, untungSen, galat }
    (hasil dari worker kalkulator).
    DOM dibangun sekali; setelah itu tiap effect hanya menyentuh
    satu node teks, sehingga perubahan stok tidak merender ulang kartu.
@@ -210,6 +229,16 @@ export class ProductCard extends HTMLElement {
       }));
     };
 
+    const tombolUbah = h('button', {
+      type: 'button',
+      text: 'Ubah produk',
+      onClick: () => this.dispatchEvent(new CustomEvent('produk-ubah', {
+        bubbles: true,
+        composed: true,
+        detail: { id: p.id },
+      })),
+    });
+
     const tombolKurang = h('button', {
       type: 'button',
       'aria-label': 'Kurangi stok',
@@ -233,6 +262,7 @@ export class ProductCard extends HTMLElement {
         elStok,
         h('div', { class: 'kontrol' }, tombolKurang, tombolTambah),
       ),
+      h('div', { class: 'aksi' }, tombolUbah),
     );
 
     akar.replaceChildren(kartu);
@@ -246,7 +276,9 @@ export class ProductCard extends HTMLElement {
       elHarga.dataset.status = hasil.tahap;
       if (hasil.tahap === 'ok') {
         elHarga.textContent = formatRupiah(hasil.hargaSen);
-        elUntung.textContent = `Untung ${formatRupiah(hasil.untungSen)}`;
+        elUntung.textContent = hasil.coretSen !== hasil.hargaSen
+          ? `Harga coret ${formatRupiah(hasil.coretSen)} · Untung ${formatRupiah(hasil.untungSen)}`
+          : `Untung ${formatRupiah(hasil.untungSen)}`;
       } else if (hasil.tahap === 'galat') {
         elHarga.textContent = hasil.galat;
         elUntung.textContent = '';

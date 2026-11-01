@@ -70,6 +70,9 @@ export const db = {
   tambahBanyak: (daftar) => panggil('tambahBanyak', daftar),
   ubahStok: (id, selisih) => panggil('ubahStok', { id, selisih }),
   ubahStokMassal: (daftar) => panggil('ubahStokMassal', daftar),
+  ubahProduk: (produk) => panggil('ubahProduk', produk), // { id, ...field produk }
   hapus: (id) => panggil('hapus', id),
+  ambilPengaturan: () => panggil('ambilPengaturan'), // objek atau null bila belum pernah disimpan
+  simpanPengaturan: (pengaturan) => panggil('simpanPengaturan', pengaturan),
   kosongkan: () => panggil('kosongkan'),
 };

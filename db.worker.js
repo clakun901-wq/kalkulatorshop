@@ -21,7 +21,7 @@ const KANDIDAT_SQLITE = [
 ];
 
 const NAMA_DB = '/kalsara.sqlite3';
-const VERSI_SKEMA = 2;
+const VERSI_SKEMA = 3;
 
 let sqlite3 = null;
 let db = null;
@@ -108,6 +108,13 @@ function migrasi() {
         ALTER TABLE produk ADD COLUMN isi_paket INTEGER NOT NULL DEFAULT 1 CHECK (isi_paket >= 1);
       `);
     }
+    if (versi < 3) {
+      // Pengaturan toko (satu baris JSON) dan tarif khusus per produk.
+      db.exec(`
+        CREATE TABLE pengaturan (kunci TEXT PRIMARY KEY, nilai TEXT NOT NULL);
+        ALTER TABLE produk ADD COLUMN override_json TEXT NOT NULL DEFAULT '{}';
+      `);
+    }
     db.exec(`PRAGMA user_version = ${VERSI_SKEMA};`);
   });
 }
@@ -146,14 +153,42 @@ function cekProduk(p) {
     packingSen: bulatTakNegatif(p.packingSen, 'Biaya packing'),
     targetUntungSen: bulatTakNegatif(p.targetUntungSen, 'Target untung'),
     isiPaket,
+    override: cekOverride(p.override),
   };
 }
 
 function bindProduk(v, kini) {
   return [
     v.sku, v.nama, v.hargaSen, v.stok, v.modalSen, v.kemitraanSen,
-    v.packingSen, v.targetUntungSen, v.isiPaket, kini, kini,
+    v.packingSen, v.targetUntungSen, v.isiPaket, JSON.stringify(v.override ?? {}), kini, kini,
   ];
+}
+
+// Tarif khusus per produk. Hanya kunci yang dikenal kalkulator yang disimpan.
+function cekOverride(o) {
+  const hasil = {};
+  if (o === undefined || o === null) return hasil;
+  if (typeof o !== 'object' || Array.isArray(o)) throw new Error('Tarif khusus produk tidak valid.');
+  for (const kunci of ['kategoriAdmin', 'kategoriGo']) {
+    if (o[kunci] === undefined || o[kunci] === '') continue;
+    if (typeof o[kunci] !== 'string' || !/^[A-Za-z]{1,6}$/.test(o[kunci])) {
+      throw new Error(`${kunci} tidak valid.`);
+    }
+    hasil[kunci] = o[kunci];
+  }
+  if (o.ukuran !== undefined && o.ukuran !== '') {
+    if (o.ukuran !== 'b' && o.ukuran !== 'k') throw new Error('ukuran harus b atau k.');
+    hasil.ukuran = o.ukuran;
+  }
+  return hasil;
+}
+
+function rapikanBaris(b) {
+  if (!b) return b;
+  const { overrideJson, ...sisa } = b;
+  let override = {};
+  try { override = JSON.parse(overrideJson || '{}'); } catch { override = {}; }
+  return { ...sisa, override };
 }
 
 function terjemahkanGalat(e) {
@@ -173,14 +208,14 @@ function denganStmt(sql, isi) {
 const SQL_TAMBAH = `
   INSERT INTO produk (
     sku, nama, harga_sen, stok, modal_sen, kemitraan_sen, packing_sen,
-    target_untung_sen, isi_paket, dibuat_pada, diubah_pada
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    target_untung_sen, isi_paket, override_json, dibuat_pada, diubah_pada
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 const SQL_BARIS = `
   SELECT id, sku, nama, harga_sen AS hargaSen, stok,
          modal_sen AS modalSen, kemitraan_sen AS kemitraanSen,
          packing_sen AS packingSen, target_untung_sen AS targetUntungSen,
-         isi_paket AS isiPaket
+         isi_paket AS isiPaket, override_json AS overrideJson
   FROM produk
 `;
 
@@ -221,7 +256,7 @@ const OPERASI = {
   },
 
   daftar() {
-    return db.selectObjects(`${SQL_BARIS} ORDER BY id`);
+    return db.selectObjects(`${SQL_BARIS} ORDER BY id`).map(rapikanBaris);
   },
 
   tambah(p) {
@@ -233,7 +268,7 @@ const OPERASI = {
       throw terjemahkanGalat(e);
     }
     const id = Number(db.selectValue('SELECT last_insert_rowid()'));
-    return db.selectObject(`${SQL_BARIS} WHERE id = ?`, [id]);
+    return rapikanBaris(db.selectObject(`${SQL_BARIS} WHERE id = ?`, [id]));
   },
 
   tambahBanyak(daftar) {
@@ -251,7 +286,7 @@ const OPERASI = {
     } catch (e) {
       throw terjemahkanGalat(e);
     }
-    return db.selectObjects(`${SQL_BARIS} ORDER BY id`);
+    return db.selectObjects(`${SQL_BARIS} ORDER BY id`).map(rapikanBaris);
   },
 
   // Satu halaman produk (+ pencarian nama/SKU) langsung dari SQLite, jadi utas utama
@@ -271,7 +306,7 @@ const OPERASI = {
     // `undefined` (bukan []) bila tidak ada kata pencarian.
     const bindCari = bind.length > 0 ? bind : undefined;
     const total = Number(db.selectValue(`SELECT COUNT(*) FROM produk ${where}`, bindCari));
-    const baris = db.selectObjects(`${SQL_BARIS} ${where} ORDER BY id LIMIT ? OFFSET ?`, [...bind, batas, offset]);
+    const baris = db.selectObjects(`${SQL_BARIS} ${where} ORDER BY id LIMIT ? OFFSET ?`, [...bind, batas, offset]).map(rapikanBaris);
     return { baris, total };
   },
 
@@ -297,6 +332,46 @@ const OPERASI = {
     });
     const sesudah = Number(db.selectValue('SELECT COUNT(*) FROM produk'));
     return { ditambah: sesudah - sebelum, total: sesudah, ms: performance.now() - mulai };
+  },
+
+  ubahProduk(p) {
+    const id = p?.id;
+    if (!Number.isSafeInteger(id)) throw new Error('id produk harus bilangan bulat.');
+    const v = cekProduk(p);
+    try {
+      db.exec({
+        sql: `UPDATE produk SET sku = ?, nama = ?, stok = ?, modal_sen = ?, kemitraan_sen = ?,
+                packing_sen = ?, target_untung_sen = ?, isi_paket = ?, override_json = ?, diubah_pada = ?
+              WHERE id = ?`,
+        bind: [v.sku, v.nama, v.stok, v.modalSen, v.kemitraanSen, v.packingSen,
+          v.targetUntungSen, v.isiPaket, JSON.stringify(v.override), Date.now(), id],
+      });
+    } catch (e) {
+      throw terjemahkanGalat(e);
+    }
+    const baris = db.selectObject(`${SQL_BARIS} WHERE id = ?`, [id]);
+    if (!baris) throw new Error('Produk tidak ditemukan.');
+    return rapikanBaris(baris);
+  },
+
+  ambilPengaturan() {
+    const nilai = db.selectValue('SELECT nilai FROM pengaturan WHERE kunci = ?', ['toko']);
+    if (nilai === undefined) return null;
+    try { return JSON.parse(nilai); } catch { return null; }
+  },
+
+  simpanPengaturan(pengaturan) {
+    if (!pengaturan || typeof pengaturan !== 'object' || Array.isArray(pengaturan)) {
+      throw new Error('Pengaturan harus berupa objek.');
+    }
+    const json = JSON.stringify(pengaturan);
+    if (json.length > 20_000) throw new Error('Pengaturan terlalu besar.');
+    db.exec({
+      sql: `INSERT INTO pengaturan (kunci, nilai) VALUES (?, ?)
+            ON CONFLICT(kunci) DO UPDATE SET nilai = excluded.nilai`,
+      bind: ['toko', json],
+    });
+    return true;
   },
 
   ubahStok({ id, selisih }) {
