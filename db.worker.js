@@ -267,7 +267,10 @@ const OPERASI = {
       where = "WHERE nama LIKE ? ESCAPE '\\' OR sku LIKE ? ESCAPE '\\'";
       bind = [pola, pola];
     }
-    const total = Number(db.selectValue(`SELECT COUNT(*) FROM produk ${where}`, bind));
+    // SQLite Wasm menolak daftar bind pada pernyataan tanpa parameter, jadi kirim
+    // `undefined` (bukan []) bila tidak ada kata pencarian.
+    const bindCari = bind.length > 0 ? bind : undefined;
+    const total = Number(db.selectValue(`SELECT COUNT(*) FROM produk ${where}`, bindCari));
     const baris = db.selectObjects(`${SQL_BARIS} ${where} ORDER BY id LIMIT ? OFFSET ?`, [...bind, batas, offset]);
     return { baris, total };
   },
