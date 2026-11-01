@@ -167,6 +167,12 @@ function cekRentang(r) {
   return { dari, sampai };
 }
 
+function cekSebelum(sebelum) {
+  if (!Number.isSafeInteger(sebelum) || sebelum < 1) throw new Error('Batas tanggal tidak valid.');
+  if (sebelum > Date.now()) throw new Error('Batas tanggal tidak boleh di masa depan.');
+  return sebelum;
+}
+
 function rapikanPenjualan(b) {
   return {
     id: Number(b.id), dicatatPada: Number(b.dicatatPada), sku: b.sku, nama: b.nama,
@@ -657,6 +663,49 @@ const OPERASI = {
       throw new Error(`Lebih dari ${BATAS_EKSPOR.toLocaleString('id-ID')} penjualan. Pilih periode yang lebih pendek.`);
     }
     return baris.map(rapikanPenjualan);
+  },
+
+  // Fase 8: laju penjualan per produk untuk perkiraan stok habis. Hanya produk yang MASIH ada
+  // (punya stok sekarang). Diurutkan dari yang paling cepat habis (stok / terjual terkecil);
+  // pembagian dalam urutan hanya untuk mengurutkan, hari sisa dihitung bilangan bulat di laporan.js.
+  lajuPenjualan(r) {
+    const { dari, sampai } = cekRentang(r);
+    const batas = r?.batas ?? 10;
+    if (!Number.isSafeInteger(batas) || batas < 1 || batas > 500) throw new Error('batas harus 1-500.');
+    const pertama = db.selectValue(
+      'SELECT MIN(dicatat_pada) FROM penjualan WHERE dicatat_pada >= ? AND dicatat_pada < ?', [dari, sampai]
+    );
+    const produk = db.selectObjects(
+      `SELECT k.sku AS sku, k.nama AS nama, k.stok AS stok, COUNT(*) AS terjual
+       FROM penjualan p JOIN produk k ON k.id = p.produk_id
+       WHERE p.dicatat_pada >= ? AND p.dicatat_pada < ?
+       GROUP BY k.id ORDER BY (k.stok * 1.0 / COUNT(*)), k.stok, k.sku LIMIT ?`,
+      [dari, sampai, batas]
+    ).map((b) => ({ sku: b.sku, nama: b.nama, stok: Number(b.stok), terjual: Number(b.terjual) }));
+    return { pertama: pertama === null || pertama === undefined ? null : Number(pertama), produk };
+  },
+
+  // Fase 8: hapus catatan penjualan lama. Dua langkah supaya aman: hitung dulu (hitungPenjualanSebelum),
+  // lalu hapus dengan menyebut jumlah yang tadi dilihat pengguna; bila jumlahnya sudah berubah, tidak ada
+  // yang dihapus. Stok produk TIDAK berubah. `sebelum` (ms) tidak ikut dihapus dan tidak boleh di masa depan.
+  hitungPenjualanSebelum(r) {
+    const sebelum = cekSebelum(r?.sebelum);
+    const x = db.selectObject(
+      'SELECT COUNT(*) AS jumlah, COALESCE(SUM(untung_sen), 0) AS untungSen FROM penjualan WHERE dicatat_pada < ?', [sebelum]
+    );
+    return { jumlah: Number(x.jumlah), untungSen: Number(x.untungSen) };
+  },
+
+  hapusPenjualanSebelum(r) {
+    const sebelum = cekSebelum(r?.sebelum);
+    const jumlah = r?.jumlah;
+    if (!Number.isSafeInteger(jumlah) || jumlah < 1) throw new Error('Jumlah catatan yang akan dihapus tidak valid.');
+    return db.transaction(() => {
+      const ada = Number(db.selectValue('SELECT COUNT(*) FROM penjualan WHERE dicatat_pada < ?', [sebelum]));
+      if (ada !== jumlah) throw new Error('Jumlah catatan sudah berubah sejak Anda melihatnya. Ulangi dari awal.');
+      db.exec({ sql: 'DELETE FROM penjualan WHERE dicatat_pada < ?', bind: [sebelum] });
+      return { dihapus: ada };
+    });
   },
 
   hapus(id) {

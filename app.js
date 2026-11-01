@@ -187,6 +187,7 @@ function pilihTab(nama) {
   }
   // Meninggalkan Etalase mengunci semua gembok stok kembali.
   if (dari === 'etalase' && gembok.kunciSemua()) segarkanGembok();
+  if (dari === 'laporan') laporan.kunci(); // gembok hapus catatan lama terkunci lagi
   // Data dimuat ulang saat tab dibuka, jadi stok dan harga di dua tab tidak saling usang.
   if (statusDb.peek().tahap === 'siap') {
     const muat = nama === 'etalase' ? muatEtalase : nama === 'hitung' ? muatHalaman : nama === 'laporan' ? laporan.muat : null;

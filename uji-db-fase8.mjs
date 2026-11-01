@@ -280,6 +280,68 @@ await uji('uji beban: 20.000 penjualan, 1.000 SKU, keempat kueri cepat dan benar
   console.log(`        (empat kueri pada 20.000 penjualan: ${Math.round(ms)} ms di Node)`);
 });
 
+await uji('lajuPenjualan: hanya produk yang masih ada, urut paling cepat habis, pertama = waktu terawal', async () => {
+  const w = await muatWorker(); await w.panggil('init');
+  const a = await w.panggil('tambah', produk({ sku: 'A', nama: 'Cepat habis', stok: 10 }));
+  const b = await w.panggil('tambah', produk({ sku: 'B', nama: 'Lambat', stok: 10 }));
+  const c = await w.panggil('tambah', produk({ sku: 'C', nama: 'Dihapus', stok: 10 }));
+  for (let n = 0; n < 6; n++) await jual(w, a, 1, 1, T + 100 + n); // A: stok 4, terjual 6 -> 0,67
+  await jual(w, b, 1, 1, T + 50); // B: stok 9, terjual 1 -> 9
+  await jual(w, c, 1, 1, T + 200); await w.panggil('hapus', c.id);
+  const r = await w.panggil('lajuPenjualan', { dari: 0, sampai: Number.MAX_SAFE_INTEGER });
+  sama(r.pertama, T + 50, 'penjualan pertama (termasuk produk dihapus)');
+  sama(r.produk.map((x) => x.sku).join(','), 'A,B', 'C dihapus tidak ikut; A lebih cepat habis');
+  sama(r.produk[0].stok, 4, 'stok A'); sama(r.produk[0].terjual, 6, 'terjual A');
+  const sempit = await w.panggil('lajuPenjualan', { dari: T + 60, sampai: T + 1000, batas: 1 });
+  sama(sempit.produk.length, 1, 'batas 1'); sama(sempit.pertama, T + 100, 'pertama di dalam jendela');
+  const kosong = await w.panggil('lajuPenjualan', { dari: T + 5000, sampai: T + 6000 });
+  sama(kosong.pertama, null, 'pertama null bila kosong'); sama(kosong.produk.length, 0, 'produk kosong');
+});
+
+await uji('lajuPenjualan: stok 0 tampil paling depan, tidak membagi dengan nol', async () => {
+  const w = await muatWorker(); await w.panggil('init');
+  const a = await w.panggil('tambah', produk({ sku: 'A', stok: 1 }));
+  const b = await w.panggil('tambah', produk({ sku: 'B', stok: 50 }));
+  await jual(w, a, 1, 1, T); await jual(w, b, 1, 1, T);
+  const r = await w.panggil('lajuPenjualan', { dari: 0, sampai: Number.MAX_SAFE_INTEGER });
+  sama(r.produk[0].sku, 'A', 'stok 0 dulu'); sama(r.produk[0].stok, 0, 'stok 0');
+});
+
+await uji('hitung + hapus penjualan sebelum tanggal: batas tepat, stok utuh, jumlah harus cocok', async () => {
+  const w = await muatWorker(); await w.panggil('init');
+  const p = await w.panggil('tambah', produk({ stok: 20 }));
+  const lalu = Date.now() - 10 * 86_400_000;
+  await jual(w, p, 100, 10, lalu); await jual(w, p, 100, -4, lalu + 1000); await jual(w, p, 100, 30, lalu + 2000);
+  const stokSebelum = (await w.panggil('daftar')).find((x) => x.id === p.id).stok;
+  const batas = lalu + 2000; // catatan tepat di batas TIDAK ikut dihapus
+  const hitung = await w.panggil('hitungPenjualanSebelum', { sebelum: batas });
+  sama(hitung.jumlah, 2, 'dua catatan sebelum batas'); sama(hitung.untungSen, 6, 'untung total 10 - 4');
+  await gagalDengan(w.panggil('hapusPenjualanSebelum', { sebelum: batas, jumlah: 3 }), /sudah berubah/, 'jumlah tidak cocok');
+  sama(w.mentah().prepare('SELECT COUNT(*) AS n FROM penjualan').get().n, 3, 'tidak ada yang terhapus saat gagal');
+  const hasil = await w.panggil('hapusPenjualanSebelum', { sebelum: batas, jumlah: 2 });
+  sama(hasil.dihapus, 2, 'dihapus');
+  sama(w.mentah().prepare('SELECT COUNT(*) AS n FROM penjualan').get().n, 1, 'sisa satu (di batas)');
+  const stokSesudah = (await w.panggil('daftar')).find((x) => x.id === p.id).stok;
+  sama(stokSesudah, stokSebelum, 'stok produk tidak berubah');
+  sama((await w.panggil('laporanRingkas', { dari: 0, sampai: Number.MAX_SAFE_INTEGER })).untungSen, 30, 'laporan ikut berubah');
+  sama((await w.panggil('hitungPenjualanSebelum', { sebelum: batas })).jumlah, 0, 'ulang hitung = 0');
+});
+
+await uji('hapus catatan lama menolak masukan tidak valid dan tidak berefek', async () => {
+  const w = await muatWorker(); await w.panggil('init');
+  const p = await w.panggil('tambah', produk({ stok: 5 }));
+  await jual(w, p, 1, 1, Date.now() - 1000);
+  await gagalDengan(w.panggil('hitungPenjualanSebelum', { sebelum: Date.now() + 86_400_000 }), /masa depan/, 'masa depan');
+  await gagalDengan(w.panggil('hapusPenjualanSebelum', { sebelum: Date.now() + 86_400_000, jumlah: 1 }), /masa depan/, 'hapus masa depan');
+  await gagalDengan(w.panggil('hitungPenjualanSebelum', { sebelum: 0 }), /tidak valid/, 'nol');
+  await gagalDengan(w.panggil('hitungPenjualanSebelum', { sebelum: 1.5 }), /tidak valid/, 'pecahan');
+  await gagalDengan(w.panggil('hitungPenjualanSebelum', undefined), /tidak valid/, 'tanpa argumen');
+  await gagalDengan(w.panggil('hapusPenjualanSebelum', { sebelum: Date.now(), jumlah: 0 }), /tidak valid/, 'jumlah 0');
+  await gagalDengan(w.panggil('hapusPenjualanSebelum', { sebelum: Date.now(), jumlah: -1 }), /tidak valid/, 'jumlah negatif');
+  await gagalDengan(w.panggil('hapusPenjualanSebelum', { sebelum: Date.now(), jumlah: 1.5 }), /tidak valid/, 'jumlah pecahan');
+  sama(w.mentah().prepare('SELECT COUNT(*) AS n FROM penjualan').get().n, 1, 'catatan utuh');
+});
+
 const gagal = hasil.filter((x) => !x.ok);
 for (const x of hasil) console.log(`${x.ok ? 'LOLOS' : 'GAGAL'}  ${x.nama}${x.ok ? '' : `\n        ${x.galat}`}`);
 console.log(`\n${hasil.length - gagal.length} dari ${hasil.length} uji database lolos`);

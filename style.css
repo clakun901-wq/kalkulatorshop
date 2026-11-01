@@ -444,3 +444,14 @@ dialog .aksi-form {
 }
 .untung { color: var(--warna-aman); }
 .rugi { color: var(--warna-habis); }
+.tanggal-bebas {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+.tanggal-bebas[hidden] { display: none; }
+#blok-bersihkan .toolbar { display: grid; gap: 8px; }
+#blok-bersihkan button[aria-disabled="true"] { opacity: 0.5; }
+#blok-bersihkan .strip-penjualan { margin: 8px 0 0; flex-wrap: wrap; }

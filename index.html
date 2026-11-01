@@ -85,6 +85,12 @@
     <section class="filter-laporan" aria-label="Periode dan urutan">
       <label for="periode-laporan">Periode</label>
       <select id="periode-laporan"></select>
+      <div class="tanggal-bebas" id="tanggal-bebas" hidden>
+        <label for="tanggal-dari">Dari tanggal</label>
+        <input type="date" id="tanggal-dari">
+        <label for="tanggal-sampai">Sampai tanggal</label>
+        <input type="date" id="tanggal-sampai">
+      </div>
       <label for="urut-laporan">Urutkan produk</label>
       <select id="urut-laporan">
         <option value="untung">Untung terbesar</option>
@@ -96,6 +102,13 @@
 
     <h2 class="judul-kelompok judul-laporan">Produk teratas</h2>
     <ul class="daftar-laporan" id="produk-laporan"></ul>
+
+    <h2 class="judul-kelompok judul-laporan">Perkiraan stok habis</h2>
+    <p class="catatan">
+      Perkiraan dari penjualan sampai 30 hari terakhir, tidak bergantung pada periode di atas. Ini hanya
+      perkiraan kasar: tidak memperhitungkan pengisian stok, promosi, atau musim ramai.
+    </p>
+    <ul class="daftar-laporan" id="perkiraan-stok"></ul>
 
     <h2 class="judul-kelompok judul-laporan">Daftar penjualan</h2>
     <ul class="daftar-laporan" id="daftar-penjualan"></ul>
@@ -109,6 +122,26 @@
     <section class="toolbar" aria-label="Ekspor">
       <button type="button" id="btn-ekspor" class="sekunder" disabled>Ekspor CSV periode ini</button>
     </section>
+
+    <details class="alat" id="blok-bersihkan">
+      <summary>Hapus catatan penjualan lama</summary>
+      <p class="catatan">
+        Menghapus catatan penjualan sebelum tanggal yang dipilih, supaya data tidak menumpuk. Penghapusan tidak
+        bisa dibatalkan dan stok produk tidak berubah. Sebaiknya <b>Ekspor CSV</b> periode &quot;Semua&quot; dulu.
+        Ketuk gembok untuk membuka tombol hapus selama 10 detik.
+      </p>
+      <section class="toolbar" aria-label="Hapus catatan lama">
+        <button type="button" id="btn-gembok-laporan" class="sekunder">Buka gembok</button>
+        <label for="tanggal-hapus">Hapus sebelum tanggal</label>
+        <input type="date" id="tanggal-hapus">
+        <button type="button" id="btn-hapus-lama" class="sekunder bahaya" aria-disabled="true">Hapus catatan lama</button>
+      </section>
+      <div class="strip-penjualan" id="konfirmasi-hapus" role="alert" hidden>
+        <span id="teks-konfirmasi"></span>
+        <button type="button" id="btn-ya-hapus" class="sekunder bahaya">Ya, hapus</button>
+        <button type="button" id="btn-batal-hapus" class="sekunder">Batal</button>
+      </div>
+    </details>
   </section>
 
   <section id="panel-setelan" role="tabpanel" aria-labelledby="tab-setelan" hidden>

@@ -4,7 +4,8 @@
 
 import {
   PERIODE, WAKTU_MAKS, rentangPeriode, marginPpm, senKeTeksCsv, selTeksCsv,
-  formatWaktuLengkap, bangunCsv, namaBerkasCsv,
+  formatWaktuLengkap, bangunCsv, namaBerkasCsv, bacaTanggal, teksTanggal, rentangTanggal,
+  hariJendela, hariSisa, teksSisa, HARI_JENDELA_MAKS, HARI_JENDELA_MIN,
 } from './laporan.js';
 
 const hasilUji = [];
@@ -107,6 +108,58 @@ uji('CSV lengkap: kepala, baris, rugi negatif tidak diberi petik, akhir CRLF', (
 uji('waktu lengkap dan nama berkas', () => {
   sama(formatWaktuLengkap(lokal(2026, 0, 2, 3, 4)), '2026-01-02 03:04');
   sama(namaBerkasCsv('minggu', SEKARANG), 'kalsara-penjualan-minggu-20261104.csv');
+});
+
+uji('rentang 30 hari: 30 hari kalender termasuk hari ini', () => {
+  const r = rentangPeriode('30hari', SEKARANG);
+  sama(r.dari, lokal(2026, 10, 4 - 29), 'dari = 6 Okt'); sama(r.sampai, lokal(2026, 10, 5), 'sampai');
+});
+
+uji('bacaTanggal: hanya tanggal nyata berformat YYYY-MM-DD', () => {
+  sama(bacaTanggal('2026-11-04'), lokal(2026, 10, 4), 'normal'); sama(bacaTanggal(' 2026-11-04 '), lokal(2026, 10, 4), 'spasi');
+  sama(bacaTanggal('2028-02-29'), lokal(2028, 1, 29), 'kabisat');
+  for (const buruk of ['2026-02-29', '2026-02-31', '2026-13-01', '2026-00-10', '04/11/2026', '2026-1-4', '', null, undefined, '1999-12-31', '2101-01-01', 'abc']) {
+    sama(bacaTanggal(buruk), null, `ditolak: ${JSON.stringify(buruk)}`);
+  }
+  sama(teksTanggal(lokal(2026, 0, 5, 23, 59)), '2026-01-05', 'teksTanggal');
+});
+
+uji('rentangTanggal: kedua tanggal ikut, satu hari = 24 jam, akhir tahun, urutan terbalik ditolak', () => {
+  const satu = rentangTanggal('2026-11-04', '2026-11-04');
+  sama(satu.dari, lokal(2026, 10, 4), 'dari'); sama(satu.sampai, lokal(2026, 10, 5), 'sampai = awal esok');
+  const lintas = rentangTanggal('2026-12-30', '2026-12-31');
+  sama(lintas.sampai, lokal(2027, 0, 1), 'melewati akhir tahun');
+  benar(lokal(2026, 10, 4, 23, 59) < satu.sampai, '23:59 hari akhir masuk');
+  gagal(() => rentangTanggal('2026-11-05', '2026-11-04'), /sebelum/, 'terbalik');
+  gagal(() => rentangTanggal('', '2026-11-04'), /dengan benar/, 'awal kosong');
+  gagal(() => rentangTanggal('2026-11-04', '2026-02-30'), /dengan benar/, 'akhir tidak nyata');
+});
+
+uji('jendela perkiraan: dipendekkan sampai hari pertama, tapi 7..30 hari', () => {
+  sama(hariJendela(SEKARANG, null), HARI_JENDELA_MIN, 'tanpa data');
+  sama(hariJendela(SEKARANG, lokal(2026, 10, 4, 1)), HARI_JENDELA_MIN, 'baru hari ini -> 7');
+  sama(hariJendela(SEKARANG, lokal(2026, 10, 4 - 9)), 10, '9 hari lalu -> 10 hari (hari ini ikut)');
+  sama(hariJendela(SEKARANG, lokal(2026, 10, 4 - 29)), 30, 'tepat 30');
+  sama(hariJendela(SEKARANG, lokal(2026, 5, 1)), HARI_JENDELA_MAKS, 'lama -> 30');
+});
+
+uji('hari sisa: bilangan bulat, dibulatkan ke bawah, stok 0 = 0, tanpa penjualan = null', () => {
+  sama(hariSisa(4, 12, 30), 10, '4 stok, 12 terjual/30 hari'); // 4*30/12 = 10
+  sama(hariSisa(5, 12, 30), 12, 'dibulatkan ke bawah (12,5)');
+  sama(hariSisa(1, 30, 30), 1, 'tepat 1 hari'); sama(hariSisa(1, 31, 30), 0, 'kurang dari 1 hari');
+  sama(hariSisa(0, 5, 30), 0, 'stok habis'); sama(hariSisa(10, 0, 30), null, 'tanpa penjualan');
+  sama(hariSisa(999_999_999, 1, 30), 29_999_999_970, 'nominal besar tetap bilangan bulat');
+  gagal(() => hariSisa(1.5, 1, 30), /bilangan bulat/, 'stok pecahan'); gagal(() => hariSisa(1, 1, 0), /bilangan bulat/, 'hari 0');
+});
+
+uji('teks sisa hari', () => {
+  sama(teksSisa(null), '-'); sama(teksSisa(0), 'kurang dari 1 hari'); sama(teksSisa(1), '1 hari'); sama(teksSisa(365), '365 hari');
+  sama(teksSisa(366), 'lebih dari 1 tahun');
+});
+
+uji('nama berkas CSV untuk tanggal bebas memuat kedua tanggal', () => {
+  sama(namaBerkasCsv('kustom', SEKARANG, { dari: '2026-10-01', sampai: '2026-10-31' }), 'kalsara-penjualan-20261001-20261031.csv');
+  sama(namaBerkasCsv('kustom', SEKARANG, null), 'kalsara-penjualan-kustom-20261104.csv', 'tanpa tanggal jatuh ke bentuk biasa');
 });
 
 const gagalSemua = hasilUji.filter((x) => !x.ok);
