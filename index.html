@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Kalsara <span class="versi">v6 · Fase 2</span></h1>
+    <h1>Kalsara <span class="versi">v6 · Fase 4</span></h1>
     <p class="ringkas" id="ringkas" aria-live="polite">Menyiapkan penyimpanan…</p>
     <p class="status-db" id="status-db"></p>
   </header>
@@ -19,11 +19,30 @@
 
   <section class="toolbar" aria-label="Aksi uji">
     <button type="button" id="btn-tambah" disabled>Tambah produk contoh</button>
-    <button type="button" id="btn-acak" class="sekunder" disabled>Ubah stok acak</button>
+    <button type="button" id="btn-dummy" class="sekunder" disabled>Isi 1.000 data dummy</button>
+    <button type="button" id="btn-beban" class="sekunder" disabled>Uji beban 1.000 produk</button>
+    <button type="button" id="btn-acak" class="sekunder" disabled>Ubah stok acak (halaman ini)</button>
     <button type="button" id="btn-hapus-semua" class="sekunder" disabled>Hapus semua data</button>
+    <a class="tautan" href="./uji-fase3.html">Uji kalkulator</a>
+  </section>
+
+  <section class="panel-beban" id="panel-beban" aria-label="Hasil uji beban" hidden>
+    <h2>Hasil uji beban</h2>
+    <ul id="hasil-beban"></ul>
+  </section>
+
+  <section class="cari-baris" aria-label="Pencarian">
+    <label for="cari" class="sr-only">Cari produk</label>
+    <input id="cari" type="search" placeholder="Cari nama atau SKU" autocomplete="off" disabled>
   </section>
 
   <main id="daftar" class="daftar" aria-label="Daftar produk"></main>
+
+  <nav class="pager" aria-label="Halaman">
+    <button type="button" id="btn-sebelumnya" class="sekunder" disabled>Sebelumnya</button>
+    <span id="info-halaman" aria-live="polite"></span>
+    <button type="button" id="btn-berikutnya" class="sekunder" disabled>Berikutnya</button>
+  </nav>
 
   <noscript>Kalsara membutuhkan JavaScript untuk berjalan.</noscript>
 

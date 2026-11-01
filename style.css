@@ -155,3 +155,84 @@ button:disabled {
   margin: 0;
   color: var(--warna-teks-redup);
 }
+
+/* ---- Fase 3: halaman uji kalkulator ---- */
+.tautan { align-self: center; color: var(--warna-aksen); }
+
+.daftar-uji {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--ruang) var(--ruang);
+  display: grid;
+  gap: 6px;
+}
+
+.uji {
+  padding: 8px 10px;
+  border: 1px solid var(--warna-garis);
+  border-radius: var(--radius-kontrol);
+  background: var(--warna-permukaan);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.uji.lolos { border-left: 4px solid var(--warna-aman); }
+.uji.gagal { border-left: 4px solid var(--warna-habis); }
+.uji pre { margin: 6px 0 0; white-space: pre-wrap; font-size: 0.75rem; }
+
+#ringkasan[data-status="lolos"] { color: var(--warna-aman); font-weight: 600; }
+#ringkasan[data-status="gagal"] { color: var(--warna-habis); font-weight: 600; }
+
+/* ---- Fase 4: pencarian, halaman, uji beban ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.cari-baris { padding: 0 var(--ruang) var(--ruang); }
+
+.cari-baris input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  font: inherit;
+  color: var(--warna-teks);
+  background: var(--warna-permukaan);
+  border: 1px solid var(--warna-garis);
+  border-radius: var(--radius-kontrol);
+}
+.cari-baris input:focus-visible {
+  outline: 3px solid var(--warna-aksen);
+  outline-offset: 2px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 var(--ruang) calc(var(--ruang) * 2);
+  font-size: 0.875rem;
+  color: var(--warna-teks-redup);
+}
+.pager span { text-align: center; flex: 1; }
+
+.panel-beban {
+  margin: 0 var(--ruang) var(--ruang);
+  padding: 12px;
+  background: var(--warna-permukaan);
+  border: 1px solid var(--warna-garis);
+  border-radius: var(--radius-kartu);
+}
+.panel-beban[hidden] { display: none; }
+.panel-beban h2 { margin: 0 0 8px; font-size: 1rem; }
+.panel-beban ul { margin: 0; padding-left: 18px; font-size: 0.8125rem; }
+.panel-beban li { margin-bottom: 6px; overflow-wrap: anywhere; }
+
+.pesan[data-jenis="info"] {
+  border-color: var(--warna-aman);
+  color: var(--warna-aman);
+}

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Kalsara v6 · Uji Kalkulator (Fase 3)</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Uji kalkulator <span class="versi" id="versi">Fase 3</span></h1>
+    <p class="ringkas" id="ringkasan" aria-live="polite">Menyiapkan…</p>
+    <p class="status-db" id="benchmark"></p>
+  </header>
+
+  <section class="toolbar" aria-label="Aksi">
+    <button type="button" id="btn-uji" disabled>Jalankan ulang uji</button>
+    <a class="tautan" href="./index.html">Kembali ke aplikasi</a>
+  </section>
+
+  <ul class="daftar-uji" id="daftar-uji"></ul>
+
+  <script type="module" src="./uji-fase3.js"></script>
+</body>
+</html>

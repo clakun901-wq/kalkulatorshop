@@ -93,6 +93,26 @@ gayaKartu.replaceSync(`
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
+  .label-harga {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--warna-teks-redup, #5a6b78);
+  }
+  .harga[data-status="galat"] {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--warna-habis, #b3261e);
+  }
+  .harga[data-status="menunggu"] {
+    font-weight: 400;
+    color: var(--warna-teks-redup, #5a6b78);
+  }
+  .untung {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--warna-teks-redup, #5a6b78);
+  }
   .baris-stok {
     display: flex;
     align-items: center;
@@ -130,7 +150,9 @@ gayaKartu.replaceSync(`
 
 /* ---------------------------------------------------------------
    <product-card>
-   Properti `produk` berisi { id, sku, nama, harga: signal, stok: signal }.
+   Properti `produk` berisi { id, sku, nama, stok: signal, hitung: signal }.
+   `hitung` = { tahap: 'menunggu' | 'ok' | 'galat', hargaSen, untungSen, galat }
+   (hasil dari worker kalkulator).
    DOM dibangun sekali; setelah itu tiap effect hanya menyentuh
    satu node teks, sehingga perubahan stok tidak merender ulang kartu.
 ---------------------------------------------------------------- */
@@ -175,7 +197,9 @@ export class ProductCard extends HTMLElement {
 
     const elNama = h('h3', { class: 'nama' });
     const elSku = h('p', { class: 'sku' });
+    const elLabelHarga = h('p', { class: 'label-harga', text: 'Harga jual ideal' });
     const elHarga = h('p', { class: 'harga' });
+    const elUntung = h('p', { class: 'untung' });
     const elStok = h('span', { class: 'stok' });
 
     const ubahStok = (selisih) => {
@@ -202,7 +226,9 @@ export class ProductCard extends HTMLElement {
     const kartu = h('article', { class: 'kartu' },
       elNama,
       elSku,
+      elLabelHarga,
       elHarga,
+      elUntung,
       h('div', { class: 'baris-stok' },
         elStok,
         h('div', { class: 'kontrol' }, tombolKurang, tombolTambah),
@@ -216,7 +242,18 @@ export class ProductCard extends HTMLElement {
     elSku.textContent = `SKU ${p.sku}`;
 
     this.#bersih.push(effect(() => {
-      elHarga.textContent = formatRupiah(p.harga.value);
+      const hasil = p.hitung.value;
+      elHarga.dataset.status = hasil.tahap;
+      if (hasil.tahap === 'ok') {
+        elHarga.textContent = formatRupiah(hasil.hargaSen);
+        elUntung.textContent = `Untung ${formatRupiah(hasil.untungSen)}`;
+      } else if (hasil.tahap === 'galat') {
+        elHarga.textContent = hasil.galat;
+        elUntung.textContent = '';
+      } else {
+        elHarga.textContent = 'Menghitung…';
+        elUntung.textContent = '';
+      }
     }));
 
     this.#bersih.push(effect(() => {

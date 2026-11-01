@@ -1,101 +1,136 @@
-// app.js — entry point Kalsara v6 (Fase 2)
-// State reaktif (Signals) kini bersumber dari SQLite di atas OPFS (lewat db.js).
-// Utas utama hanya merender; semua baca/tulis database ada di worker.
+// app.js — entry point Kalsara v6 (Fase 4)
+//
+// Menyambungkan tiga lapisan:
+//   UI (Signals + <product-card>)  <->  db.js -> db.worker.js (SQLite di OPFS)
+//                                  <->  kalkulator.js -> worker.js (calculator.js)
+// Utas utama hanya merender dan mengirim pesan; baca/tulis database, pencarian,
+// dan perhitungan harga semuanya berjalan di worker.
 
 import { signal, computed, effect, batch, h } from './ui.js';
 import { db } from './db.js';
+import { kalkulator } from './kalkulator.js';
+import { jalankanUjiBeban } from './beban.js';
+
+const BATAS_HALAMAN = 24;
+const JEDA_CARI_MS = 300;
+
+// Pengaturan tarif toko. Tab Setelan/Tarif belum ada, jadi memakai nilai bawaan kalkulator.
+const PENGATURAN_TOKO = {};
+
+const sen = (rupiah) => rupiah * 100;
+
+const PRODUK_AWAL = [
+  { sku: 'KLS-001', nama: 'Vacuum sealer portabel', modalSen: sen(45000), packingSen: sen(1000), targetUntungSen: sen(10000), stok: 12 },
+  { sku: 'KLS-002', nama: 'Plastik vacuum embossed 20x30 (isi 50)', modalSen: sen(18000), packingSen: sen(500), targetUntungSen: sen(5000), stok: 4 },
+  { sku: 'KLS-003', nama: 'Botol minum stainless 750 ml', modalSen: sen(32000), packingSen: sen(1000), targetUntungSen: sen(8000), stok: 0 },
+];
 
 /* ---------------------------------------------------------------
    State
-   Uang = bilangan bulat sen (rupiah x 100). Rp 89.900 → 8_990_000.
 ---------------------------------------------------------------- */
-const rupiahKeSen = (rupiah) => rupiah * 100;
+const daftarProduk = signal([]); // hanya produk di halaman yang tampil
+const halaman = signal(0); // 0-based
+const kata = signal('');
+const totalCocok = signal(0); // jumlah produk yang cocok dengan pencarian
+const ringkasan = signal({ jumlah: 0, totalStok: 0 }); // seluruh database
+const statusDb = signal({ tahap: 'memuat' }); // memuat | siap | galat
+const pesan = signal({ teks: '', jenis: 'info' });
+const sibuk = signal(false);
+const hasilBeban = signal(null); // null = panel tersembunyi, array = baris laporan
+
+const jumlahHalaman = computed(() => Math.max(1, Math.ceil(totalCocok.value / BATAS_HALAMAN)));
+
+function tanggalHariIni() {
+  const d = new Date();
+  const dua = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${dua(d.getMonth() + 1)}-${dua(d.getDate())}`;
+}
 
 function dariBaris(baris) {
   return {
     id: baris.id,
     sku: baris.sku,
     nama: baris.nama,
-    harga: signal(baris.hargaSen),
     stok: signal(baris.stok),
+    hitung: signal({ tahap: 'menunggu' }),
+    // Bahan hitung untuk kalkulator (tidak reaktif).
+    data: {
+      modalSen: baris.modalSen,
+      kemitraanSen: baris.kemitraanSen,
+      packingSen: baris.packingSen,
+      targetUntungSen: baris.targetUntungSen,
+      isiPaket: baris.isiPaket,
+    },
   };
 }
-
-const PRODUK_AWAL = [
-  { sku: 'KLS-001', nama: 'Vacuum sealer portabel', hargaSen: rupiahKeSen(89900), stok: 12 },
-  { sku: 'KLS-002', nama: 'Plastik vacuum embossed 20x30 (isi 50)', hargaSen: rupiahKeSen(35000), stok: 4 },
-  { sku: 'KLS-003', nama: 'Botol minum stainless 750 ml', hargaSen: rupiahKeSen(64500), stok: 0 },
-];
-
-const daftarProduk = signal([]);
-const statusDb = signal({ tahap: 'memuat' }); // memuat | siap | galat
-const pesan = signal('');
-
-const jumlahProduk = computed(() => daftarProduk.value.length);
-const totalStok = computed(() =>
-  daftarProduk.value.reduce((jumlah, p) => jumlah + p.stok.value, 0)
-);
 
 /* ---------------------------------------------------------------
    Elemen halaman
 ---------------------------------------------------------------- */
-const wadah = document.getElementById('daftar');
-const elRingkas = document.getElementById('ringkas');
-const elStatus = document.getElementById('status-db');
-const elPeringatan = document.getElementById('peringatan');
-const elPesan = document.getElementById('pesan');
-const tombol = [
-  document.getElementById('btn-tambah'),
-  document.getElementById('btn-acak'),
-  document.getElementById('btn-hapus-semua'),
-];
+const $ = (id) => document.getElementById(id);
+const wadah = $('daftar');
+const elRingkas = $('ringkas');
+const elStatus = $('status-db');
+const elPeringatan = $('peringatan');
+const elPesan = $('pesan');
+const elCari = $('cari');
+const elInfoHalaman = $('info-halaman');
+const btnSebelumnya = $('btn-sebelumnya');
+const btnBerikutnya = $('btn-berikutnya');
+const panelBeban = $('panel-beban');
+const daftarBeban = $('hasil-beban');
+const tombolAksi = ['btn-tambah', 'btn-acak', 'btn-dummy', 'btn-beban', 'btn-hapus-semua'].map($);
 
 /* ---------------------------------------------------------------
-   Render
-   Kartu di-cache per id: menambah produk hanya membuat satu kartu baru.
+   Render (semua lewat effect Signals, tanpa innerHTML)
 ---------------------------------------------------------------- */
-const cacheKartu = new Map();
-
-function ambilKartu(produk) {
-  let kartu = cacheKartu.get(produk.id);
-  if (!kartu) {
-    kartu = document.createElement('product-card');
-    kartu.produk = produk;
-    cacheKartu.set(produk.id, kartu);
-  }
-  return kartu;
-}
-
 effect(() => {
   const daftar = daftarProduk.value;
   const siap = statusDb.value.tahap === 'siap';
 
   if (daftar.length > 0) {
-    wadah.replaceChildren(...daftar.map(ambilKartu));
+    wadah.replaceChildren(...daftar.map((produk) => {
+      const kartu = document.createElement('product-card');
+      kartu.produk = produk;
+      return kartu;
+    }));
   } else if (siap) {
-    wadah.replaceChildren(
-      h('p', { class: 'kosong', text: 'Belum ada produk. Tekan "Tambah produk contoh" untuk mulai.' })
-    );
+    wadah.replaceChildren(h('p', {
+      class: 'kosong',
+      text: kata.value
+        ? 'Tidak ada produk yang cocok dengan pencarian.'
+        : 'Belum ada produk. Tekan "Isi 1.000 data dummy" untuk mencoba.',
+    }));
   } else {
     wadah.replaceChildren();
-  }
-
-  // Buang kartu milik produk yang sudah dihapus dari cache.
-  const idAktif = new Set(daftar.map((p) => p.id));
-  for (const id of cacheKartu.keys()) {
-    if (!idAktif.has(id)) cacheKartu.delete(id);
   }
 });
 
 effect(() => {
   const s = statusDb.value;
-  if (s.tahap === 'memuat') {
-    elRingkas.textContent = 'Menyiapkan penyimpanan…';
-  } else if (s.tahap === 'galat') {
-    elRingkas.textContent = 'Penyimpanan belum siap';
-  } else {
-    elRingkas.textContent = `${jumlahProduk.value} produk · total stok ${totalStok.value}`;
+  if (s.tahap === 'memuat') elRingkas.textContent = 'Menyiapkan penyimpanan…';
+  else if (s.tahap === 'galat') elRingkas.textContent = 'Penyimpanan belum siap';
+  else {
+    const r = ringkasan.value;
+    elRingkas.textContent = `${r.jumlah.toLocaleString('id-ID')} produk · total stok ${r.totalStok.toLocaleString('id-ID')}`;
   }
+});
+
+effect(() => {
+  const siap = statusDb.value.tahap === 'siap';
+  const nomor = halaman.value + 1;
+  const total = jumlahHalaman.value;
+  elInfoHalaman.textContent = siap
+    ? `Halaman ${nomor} dari ${total} · ${totalCocok.value.toLocaleString('id-ID')} produk`
+    : '';
+  btnSebelumnya.disabled = !siap || halaman.value === 0;
+  btnBerikutnya.disabled = !siap || nomor >= total;
+  elCari.disabled = !siap;
+});
+
+effect(() => {
+  const nonaktif = sibuk.value || statusDb.value.tahap !== 'siap';
+  for (const t of tombolAksi) t.disabled = nonaktif;
 });
 
 effect(() => {
@@ -132,107 +167,237 @@ effect(() => {
   elPeringatan.hidden = peringatan.length === 0;
 });
 
-let waktuPesan = 0;
 effect(() => {
-  const teks = pesan.value;
+  const { teks, jenis } = pesan.value;
   elPesan.textContent = teks;
+  elPesan.dataset.jenis = jenis;
   elPesan.hidden = teks === '';
 });
 
-function tampilkanPesan(teks) {
-  pesan.value = teks;
+effect(() => {
+  const baris = hasilBeban.value;
+  panelBeban.hidden = baris === null;
+  daftarBeban.replaceChildren(...(baris ?? []).map((teks) => h('li', { text: teks })));
+});
+
+let waktuPesan = 0;
+function tampilkanPesan(teks, jenis = 'info') {
+  pesan.value = { teks, jenis };
   clearTimeout(waktuPesan);
-  waktuPesan = setTimeout(() => { pesan.value = ''; }, 5000);
+  waktuPesan = setTimeout(() => { pesan.value = { teks: '', jenis }; }, 7000);
 }
 
 /* ---------------------------------------------------------------
-   Aksi (setiap aksi: tulis ke database dulu, baru perbarui signal)
+   Memuat data: halaman (dari database) + harga (dari worker kalkulator)
+---------------------------------------------------------------- */
+let nomorPermintaan = 0;
+let msRenderTerakhir = 0;
+
+async function hitungHarga(produk, saya) {
+  if (produk.length === 0) return;
+  let hasil;
+  try {
+    ({ hasil } = await kalkulator.hitungBanyak(produk.map((p) => p.data), PENGATURAN_TOKO, tanggalHariIni()));
+  } catch (e) {
+    hasil = produk.map(() => ({ ok: false, galat: `Kalkulator gagal: ${e.message}` }));
+  }
+  if (saya !== nomorPermintaan) return; // pengguna sudah pindah halaman
+  batch(() => {
+    hasil.forEach((r, i) => {
+      produk[i].hitung.value = r.ok
+        ? { tahap: 'ok', hargaSen: r.hargaListingSen, untungSen: r.untungSen }
+        : { tahap: 'galat', galat: r.galat };
+    });
+  });
+}
+
+async function muatHalaman() {
+  const saya = ++nomorPermintaan;
+  const { baris, total } = await db.halaman({
+    kata: kata.peek(),
+    batas: BATAS_HALAMAN,
+    offset: halaman.peek() * BATAS_HALAMAN,
+  });
+  if (saya !== nomorPermintaan) return;
+
+  const halamanTerakhir = Math.max(0, Math.ceil(total / BATAS_HALAMAN) - 1);
+  if (halaman.peek() > halamanTerakhir) {
+    halaman.value = halamanTerakhir;
+    return muatHalaman();
+  }
+
+  const mulai = performance.now();
+  const produk = baris.map(dariBaris);
+  batch(() => {
+    totalCocok.value = total;
+    daftarProduk.value = produk;
+  });
+  msRenderTerakhir = performance.now() - mulai;
+
+  await hitungHarga(produk, saya);
+}
+
+async function muatRingkasan() {
+  ringkasan.value = await db.ringkasan();
+}
+
+async function muatSemua() {
+  await Promise.all([muatRingkasan(), muatHalaman()]);
+}
+
+/* ---------------------------------------------------------------
+   Aksi
 ---------------------------------------------------------------- */
 async function jalankan(aksi) {
+  sibuk.value = true;
   try {
     await aksi();
   } catch (e) {
-    tampilkanPesan(e?.message ?? String(e));
+    tampilkanPesan(e?.message ?? String(e), 'galat');
+  } finally {
+    sibuk.value = false;
   }
 }
 
-function cariProduk(id) {
-  return daftarProduk.peek().find((p) => p.id === id);
-}
-
-wadah.addEventListener('stok-ubah', (e) => {
+wadah.addEventListener('stok-ubah', async (e) => {
   const { id, selisih } = e.detail;
-  jalankan(async () => {
-    const produk = cariProduk(id);
+  try {
+    const produk = daftarProduk.peek().find((p) => p.id === id);
     if (!produk) return;
     produk.stok.value = await db.ubahStok(id, selisih);
-  });
+    await muatRingkasan();
+  } catch (err) {
+    tampilkanPesan(err?.message ?? String(err), 'galat');
+  }
 });
 
-document.getElementById('btn-tambah').addEventListener('click', () => {
-  jalankan(async () => {
-    const dipakai = new Set(daftarProduk.peek().map((p) => p.sku.toLowerCase()));
-    let nomor = daftarProduk.peek().length + 1;
-    let sku = `KLS-${String(nomor).padStart(3, '0')}`;
-    while (dipakai.has(sku.toLowerCase())) {
-      nomor += 1;
-      sku = `KLS-${String(nomor).padStart(3, '0')}`;
-    }
-
-    const baris = await db.tambah({
-      sku,
-      nama: `Produk contoh ${nomor}`,
-      hargaSen: rupiahKeSen(10000 + (nomor % 9) * 5000),
-      stok: 10,
-    });
-    daftarProduk.value = [...daftarProduk.peek(), dariBaris(baris)];
-  });
+$('btn-sebelumnya').addEventListener('click', () => {
+  if (halaman.peek() > 0) {
+    halaman.value -= 1;
+    jalankan(muatHalaman);
+  }
 });
 
-document.getElementById('btn-acak').addEventListener('click', () => {
-  jalankan(async () => {
-    const perubahan = daftarProduk.peek().map((p) => ({
-      id: p.id,
-      stok: Math.floor(Math.random() * 15),
-    }));
-    if (perubahan.length === 0) return;
+$('btn-berikutnya').addEventListener('click', () => {
+  if (halaman.peek() + 1 < jumlahHalaman.peek()) {
+    halaman.value += 1;
+    jalankan(muatHalaman);
+  }
+});
 
-    await db.ubahStokMassal(perubahan); // satu transaksi
-    batch(() => {
-      for (const { id, stok } of perubahan) {
-        const produk = cariProduk(id);
-        if (produk) produk.stok.value = stok;
+let waktuCari = 0;
+elCari.addEventListener('input', () => {
+  clearTimeout(waktuCari);
+  waktuCari = setTimeout(() => {
+    kata.value = elCari.value;
+    halaman.value = 0;
+    muatHalaman().catch((e) => tampilkanPesan(e.message, 'galat'));
+  }, JEDA_CARI_MS);
+});
+
+$('btn-tambah').addEventListener('click', () => {
+  jalankan(async () => {
+    let nomor = ringkasan.peek().jumlah + 1;
+    let dibuat = null;
+    for (let percobaan = 0; percobaan < 50 && !dibuat; percobaan++) {
+      try {
+        dibuat = await db.tambah({
+          sku: `KLS-${String(nomor).padStart(3, '0')}`,
+          nama: `Produk contoh ${nomor}`,
+          modalSen: sen(8000 + (nomor % 9) * 4000),
+          packingSen: sen(500),
+          targetUntungSen: sen(5000),
+          stok: 10,
+        });
+      } catch (e) {
+        if (!/SKU sudah dipakai/.test(e.message)) throw e;
+        nomor += 1;
       }
-    });
+    }
+    if (!dibuat) throw new Error('Gagal membuat SKU unik.');
+
+    elCari.value = '';
+    kata.value = '';
+    await muatRingkasan();
+    halaman.value = Math.max(0, Math.ceil(ringkasan.peek().jumlah / BATAS_HALAMAN) - 1);
+    await muatHalaman();
+    tampilkanPesan(`Ditambahkan: ${dibuat.sku}.`);
   });
 });
 
-document.getElementById('btn-hapus-semua').addEventListener('click', () => {
+$('btn-acak').addEventListener('click', () => {
+  jalankan(async () => {
+    const perubahan = daftarProduk.peek().map((p) => ({ id: p.id, stok: Math.floor(Math.random() * 40) }));
+    if (perubahan.length === 0) return;
+    await db.ubahStokMassal(perubahan);
+    const peta = new Map(perubahan.map((x) => [x.id, x.stok]));
+    batch(() => {
+      for (const p of daftarProduk.peek()) p.stok.value = peta.get(p.id);
+    });
+    await muatRingkasan();
+  });
+});
+
+$('btn-dummy').addEventListener('click', () => {
+  jalankan(async () => {
+    const r = await db.suntikDummy(1000);
+    await muatSemua();
+    tampilkanPesan(
+      r.ditambah > 0
+        ? `${r.ditambah} data dummy ditambahkan dalam ${r.ms.toFixed(0)} ms. Total ${r.total} produk.`
+        : `Data dummy sudah lengkap. Total ${r.total} produk.`
+    );
+  });
+});
+
+$('btn-hapus-semua').addEventListener('click', () => {
   if (!confirm('Hapus semua produk dari database di perangkat ini?')) return;
   jalankan(async () => {
     await db.kosongkan();
-    daftarProduk.value = [];
+    elCari.value = '';
+    kata.value = '';
+    halaman.value = 0;
+    hasilBeban.value = null;
+    await muatSemua();
+  });
+});
+
+$('btn-beban').addEventListener('click', () => {
+  jalankan(async () => {
+    const baris = [];
+    hasilBeban.value = ['Menjalankan uji beban…'];
+    try {
+      await jalankanUjiBeban({
+        db,
+        kalkulator,
+        pengaturan: PENGATURAN_TOKO,
+        tanggal: tanggalHariIni(),
+        renderHalaman: async () => {
+          await muatHalaman();
+          return msRenderTerakhir;
+        },
+        lapor: (teks) => {
+          baris.push(teks);
+          hasilBeban.value = [...baris];
+        },
+      });
+    } finally {
+      await muatSemua();
+    }
   });
 });
 
 /* ---------------------------------------------------------------
-   Mulai: buka database, isi data awal bila kosong, muat ke signal
+   Mulai
 ---------------------------------------------------------------- */
 async function mulai() {
   try {
     const info = await db.init();
-    let baris = await db.daftar();
+    const ring = await db.ringkasan();
+    if (ring.jumlah === 0) await db.tambahBanyak(PRODUK_AWAL);
 
-    // Data contoh hanya untuk uji Fase 2: terisi bila database masih kosong.
-    if (baris.length === 0) {
-      baris = await db.tambahBanyak(PRODUK_AWAL);
-    }
-
-    batch(() => {
-      daftarProduk.value = baris.map(dariBaris);
-      statusDb.value = { tahap: 'siap', ...info };
-    });
-    for (const t of tombol) t.disabled = false;
+    statusDb.value = { tahap: 'siap', ...info };
+    await muatSemua();
   } catch (e) {
     statusDb.value = { tahap: 'galat', galat: e?.message ?? String(e) };
   }

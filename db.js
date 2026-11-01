@@ -63,6 +63,9 @@ export const db = {
   },
 
   daftar: () => panggil('daftar'),
+  halaman: (opsi) => panggil('halaman', opsi), // { kata, batas, offset } -> { baris, total }
+  ringkasan: () => panggil('ringkasan'), // { jumlah, totalStok } seluruh produk
+  suntikDummy: (jumlah = 1000) => panggil('suntikDummy', { jumlah }),
   tambah: (produk) => panggil('tambah', produk),
   tambahBanyak: (daftar) => panggil('tambahBanyak', daftar),
   ubahStok: (id, selisih) => panggil('ubahStok', { id, selisih }),

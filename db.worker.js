@@ -21,7 +21,7 @@ const KANDIDAT_SQLITE = [
 ];
 
 const NAMA_DB = '/kalsara.sqlite3';
-const VERSI_SKEMA = 1;
+const VERSI_SKEMA = 2;
 
 let sqlite3 = null;
 let db = null;
@@ -97,6 +97,17 @@ function migrasi() {
         CREATE INDEX idx_produk_nama ON produk (nama COLLATE NOCASE);
       `);
     }
+    if (versi < 2) {
+      // Data produk lengkap untuk kalkulator. Baris lama otomatis bermodal 0
+      // (kalkulator menandainya "Modal belum diisi").
+      db.exec(`
+        ALTER TABLE produk ADD COLUMN modal_sen INTEGER NOT NULL DEFAULT 0 CHECK (modal_sen >= 0);
+        ALTER TABLE produk ADD COLUMN kemitraan_sen INTEGER NOT NULL DEFAULT 0 CHECK (kemitraan_sen >= 0);
+        ALTER TABLE produk ADD COLUMN packing_sen INTEGER NOT NULL DEFAULT 0 CHECK (packing_sen >= 0);
+        ALTER TABLE produk ADD COLUMN target_untung_sen INTEGER NOT NULL DEFAULT 0 CHECK (target_untung_sen >= 0);
+        ALTER TABLE produk ADD COLUMN isi_paket INTEGER NOT NULL DEFAULT 1 CHECK (isi_paket >= 1);
+      `);
+    }
     db.exec(`PRAGMA user_version = ${VERSI_SKEMA};`);
   });
 }
@@ -104,19 +115,45 @@ function migrasi() {
 /* ---------------------------------------------------------------
    Validasi (uang wajib bilangan bulat sen)
 ---------------------------------------------------------------- */
+function bulatTakNegatif(nilai, nama, bawaan = 0) {
+  const n = nilai ?? bawaan;
+  if (!Number.isSafeInteger(n) || n < 0) {
+    throw new Error(`${nama} harus bilangan bulat sen dan tidak negatif.`);
+  }
+  return n;
+}
+
 function cekProduk(p) {
   const sku = typeof p?.sku === 'string' ? p.sku.trim() : '';
   const nama = typeof p?.nama === 'string' ? p.nama.trim() : '';
   if (!sku || sku.length > 40) throw new Error('SKU wajib diisi (maksimal 40 karakter).');
   if (!nama || nama.length > 200) throw new Error('Nama produk wajib diisi (maksimal 200 karakter).');
-  if (!Number.isSafeInteger(p.hargaSen) || p.hargaSen < 0) {
-    throw new Error('Harga harus bilangan bulat sen (rupiah x 100) dan tidak negatif.');
+  const isiPaket = p.isiPaket ?? 1;
+  if (!Number.isSafeInteger(isiPaket) || isiPaket < 1) {
+    throw new Error('Isi paket harus bilangan bulat minimal 1.');
   }
   const stok = p.stok ?? 0;
   if (!Number.isSafeInteger(stok) || stok < 0) {
     throw new Error('Stok harus bilangan bulat dan tidak negatif.');
   }
-  return { sku, nama, hargaSen: p.hargaSen, stok };
+  return {
+    sku,
+    nama,
+    hargaSen: bulatTakNegatif(p.hargaSen, 'Harga'),
+    stok,
+    modalSen: bulatTakNegatif(p.modalSen, 'Modal'),
+    kemitraanSen: bulatTakNegatif(p.kemitraanSen, 'Biaya Management Partner'),
+    packingSen: bulatTakNegatif(p.packingSen, 'Biaya packing'),
+    targetUntungSen: bulatTakNegatif(p.targetUntungSen, 'Target untung'),
+    isiPaket,
+  };
+}
+
+function bindProduk(v, kini) {
+  return [
+    v.sku, v.nama, v.hargaSen, v.stok, v.modalSen, v.kemitraanSen,
+    v.packingSen, v.targetUntungSen, v.isiPaket, kini, kini,
+  ];
 }
 
 function terjemahkanGalat(e) {
@@ -134,12 +171,41 @@ function denganStmt(sql, isi) {
 }
 
 const SQL_TAMBAH = `
-  INSERT INTO produk (sku, nama, harga_sen, stok, dibuat_pada, diubah_pada)
-  VALUES (?, ?, ?, ?, ?, ?)
+  INSERT INTO produk (
+    sku, nama, harga_sen, stok, modal_sen, kemitraan_sen, packing_sen,
+    target_untung_sen, isi_paket, dibuat_pada, diubah_pada
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 const SQL_BARIS = `
-  SELECT id, sku, nama, harga_sen AS hargaSen, stok FROM produk
+  SELECT id, sku, nama, harga_sen AS hargaSen, stok,
+         modal_sen AS modalSen, kemitraan_sen AS kemitraanSen,
+         packing_sen AS packingSen, target_untung_sen AS targetUntungSen,
+         isi_paket AS isiPaket
+  FROM produk
 `;
+
+const JENIS_DUMMY = [
+  'Vacuum sealer', 'Plastik vacuum', 'Botol minum', 'Kotak makan', 'Rak dapur',
+  'Pisau dapur', 'Talenan', 'Gelas kopi', 'Termos', 'Wadah kedap udara',
+];
+const VARIAN_DUMMY = ['portabel', 'mini', 'premium', 'jumbo', 'lipat', 'stainless', 'bening', 'hemat'];
+const UKURAN_DUMMY = ['S', 'M', 'L', 'XL', '500 ml', '750 ml', '20x30', '25x35'];
+
+// Data dummy deterministik: nomor yang sama selalu menghasilkan produk yang sama.
+function buatDummy(n) {
+  return {
+    sku: `DUM-${String(n).padStart(4, '0')}`,
+    nama: `${JENIS_DUMMY[n % JENIS_DUMMY.length]} ${VARIAN_DUMMY[(n * 3) % VARIAN_DUMMY.length]} ` +
+      `${UKURAN_DUMMY[(n * 5) % UKURAN_DUMMY.length]} #${n}`,
+    hargaSen: 0,
+    stok: (n * 31) % 40,
+    modalSen: (5_000 + ((n * 7919) % 245_000)) * 100,
+    kemitraanSen: n % 5 === 0 ? 100_000 : 0,
+    packingSen: (n % 4) * 50_000,
+    targetUntungSen: (1_000 + (n % 50) * 500) * 100,
+    isiPaket: n % 7 === 0 ? 2 : 1,
+  };
+}
 
 /* ---------------------------------------------------------------
    Operasi yang bisa dipanggil dari utas utama
@@ -162,7 +228,7 @@ const OPERASI = {
     const v = cekProduk(p);
     const kini = Date.now();
     try {
-      db.exec({ sql: SQL_TAMBAH, bind: [v.sku, v.nama, v.hargaSen, v.stok, kini, kini] });
+      db.exec({ sql: SQL_TAMBAH, bind: bindProduk(v, kini) });
     } catch (e) {
       throw terjemahkanGalat(e);
     }
@@ -178,7 +244,7 @@ const OPERASI = {
         denganStmt(SQL_TAMBAH, (st) => {
           for (const p of daftar) {
             const v = cekProduk(p);
-            st.bind([v.sku, v.nama, v.hargaSen, v.stok, kini, kini]).stepReset();
+            st.bind(bindProduk(v, kini)).stepReset();
           }
         });
       });
@@ -186,6 +252,48 @@ const OPERASI = {
       throw terjemahkanGalat(e);
     }
     return db.selectObjects(`${SQL_BARIS} ORDER BY id`);
+  },
+
+  // Satu halaman produk (+ pencarian nama/SKU) langsung dari SQLite, jadi utas utama
+  // tidak pernah memegang ribuan baris sekaligus.
+  halaman({ kata = '', batas = 24, offset = 0 } = {}) {
+    if (!Number.isSafeInteger(batas) || batas < 1 || batas > 500) throw new Error('batas harus 1-500.');
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('offset tidak valid.');
+    const teks = String(kata).trim().slice(0, 100);
+    let where = '';
+    let bind = [];
+    if (teks) {
+      const pola = `%${teks.replace(/[\\%_]/g, '\\$&')}%`;
+      where = "WHERE nama LIKE ? ESCAPE '\\' OR sku LIKE ? ESCAPE '\\'";
+      bind = [pola, pola];
+    }
+    const total = Number(db.selectValue(`SELECT COUNT(*) FROM produk ${where}`, bind));
+    const baris = db.selectObjects(`${SQL_BARIS} ${where} ORDER BY id LIMIT ? OFFSET ?`, [...bind, batas, offset]);
+    return { baris, total };
+  },
+
+  ringkasan() {
+    const r = db.selectObject('SELECT COUNT(*) AS jumlah, COALESCE(SUM(stok), 0) AS totalStok FROM produk');
+    return { jumlah: Number(r.jumlah), totalStok: Number(r.totalStok) };
+  },
+
+  // Suntik data dummy deterministik (SKU DUM-0001, ...). SKU yang sudah ada dilewati.
+  suntikDummy({ jumlah = 1000 } = {}) {
+    if (!Number.isSafeInteger(jumlah) || jumlah < 1 || jumlah > 20_000) {
+      throw new Error('jumlah dummy harus 1-20.000.');
+    }
+    const mulai = performance.now();
+    const sebelum = Number(db.selectValue('SELECT COUNT(*) FROM produk'));
+    const kini = Date.now();
+    db.transaction(() => {
+      denganStmt(SQL_TAMBAH.replace('INSERT INTO', 'INSERT OR IGNORE INTO'), (st) => {
+        for (let n = 1; n <= jumlah; n++) {
+          st.bind(bindProduk(buatDummy(n), kini)).stepReset();
+        }
+      });
+    });
+    const sesudah = Number(db.selectValue('SELECT COUNT(*) FROM produk'));
+    return { ditambah: sesudah - sebelum, total: sesudah, ms: performance.now() - mulai };
   },
 
   ubahStok({ id, selisih }) {
